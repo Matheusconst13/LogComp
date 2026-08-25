@@ -1,41 +1,92 @@
 import sys
 
-def main():
-    text = sys.argv[1]
-    i = 0
-    total = 0
-    op = 1
-    espera_numero = True
 
-    while i < len(text):
-        if text[i] == " ":
-            i += 1
-        elif espera_numero:
-            if not text[i].isdigit():
-                raise Exception()
-            
-            num = 0
-            while i < len(text) and text[i].isdigit():
-                num = (num * 10) + int(text[i])
-                i += 1
-            
-            total += op * num
-            espera_numero = False
+class Token:
+    def __init__(self, type, value):
+        self.type = type
+        self.value = value
+
+
+class Lexer:
+    def __init__(self, source):
+        self.source = source
+        self.position = 0
+        self.next = None
+
+    def select_next(self):
+        # Ignora espacos em branco
+        while self.position < len(self.source) and self.source[self.position] == " ":
+            self.position += 1
+
+        # Fim da entrada
+        if self.position >= len(self.source):
+            self.next = Token("EOF", "")
+            return
+
+        current = self.source[self.position]
+
+        if current == "+":
+            self.next = Token("PLUS", "+")
+            self.position += 1
+        elif current == "-":
+            self.next = Token("MINUS", "-")
+            self.position += 1
+        elif current.isdigit():
+            digits = ""
+            while self.position < len(self.source) and self.source[self.position].isdigit():
+                digits += self.source[self.position]
+                self.position += 1
+            self.next = Token("INT", int(digits))
         else:
-            if text[i] == "+":
-                op = 1
-            elif text[i] == "-":
-                op = -1
+            raise Exception("[Lexer] Invalid Symbol '" + current + "'")
+
+
+class Parser:
+    lexer = None
+
+    @staticmethod
+    def parse_expression():
+        if Parser.lexer.next.type != "INT":
+            raise Exception("[Parser] Unexpected token " + Parser.lexer.next.type)
+
+        result = Parser.lexer.next.value
+        Parser.lexer.select_next()
+
+        while Parser.lexer.next.type == "PLUS" or Parser.lexer.next.type == "MINUS":
+            operator = Parser.lexer.next.type
+            Parser.lexer.select_next()
+
+            if Parser.lexer.next.type != "INT":
+                raise Exception("[Parser] Unexpected token " + Parser.lexer.next.type)
+
+            if operator == "PLUS":
+                result = result + Parser.lexer.next.value
             else:
-                raise Exception()
-            
-            espera_numero = True
-            i += 1
+                result = result - Parser.lexer.next.value
 
-    if espera_numero:
-        raise Exception()
+            Parser.lexer.select_next()
 
-    print(total)
+        return result
+
+    @staticmethod
+    def run(code):
+        Parser.lexer = Lexer(code)
+        Parser.lexer.select_next()
+        result = Parser.parse_expression()
+
+        if Parser.lexer.next.type != "EOF":
+            raise Exception("[Parser] Unexpected token " + Parser.lexer.next.type)
+
+        return result
+
+
+def main():
+    if len(sys.argv) != 2:
+        raise Exception("[Parser] Uso: python3 main.py '<expressao>'")
+
+    result = Parser.run(sys.argv[1])
+    print(result)
+
 
 if __name__ == "__main__":
     main()
