@@ -102,6 +102,9 @@ class BinOp(Node):
         elif self.value == "MULT":
             return left * right
         elif self.value == "DIV":
+            if right == 0:
+                raise Exception("[Semantic] Division by zero")
+
             # Divisao inteira truncada em direcao ao zero (estilo C)
             quotient = left // right
             if (left % right != 0) and ((left < 0) != (right < 0)):
