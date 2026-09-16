@@ -65,16 +65,16 @@ class Node:
 
 
 class IntVal(Node):
-    def __init__(self, value):
-        super().__init__(value, [])
+    def __init__(self, value, children):
+        super().__init__(value, children)
 
     def evaluate(self):
         return self.value
 
 
 class UnOp(Node):
-    def __init__(self, value, child):
-        super().__init__(value, [child])
+    def __init__(self, value, children):
+        super().__init__(value, children)
 
     def evaluate(self):
         operand = self.children[0].evaluate()
@@ -88,8 +88,8 @@ class UnOp(Node):
 
 
 class BinOp(Node):
-    def __init__(self, value, left, right):
-        super().__init__(value, [left, right])
+    def __init__(self, value, children):
+        super().__init__(value, children)
 
     def evaluate(self):
         left = self.children[0].evaluate()
@@ -119,12 +119,12 @@ class Parser:
         if Parser.lexer.next.type == "PLUS":
             Parser.lexer.select_next()
             child = Parser.parse_factor()
-            return UnOp("PLUS", child)
+            return UnOp("PLUS", [child])
 
         if Parser.lexer.next.type == "MINUS":
             Parser.lexer.select_next()
             child = Parser.parse_factor()
-            return UnOp("MINUS", child)
+            return UnOp("MINUS", [child])
 
         if Parser.lexer.next.type == "OPEN_PAR":
             Parser.lexer.select_next()
@@ -137,7 +137,7 @@ class Parser:
             return node
 
         if Parser.lexer.next.type == "INT":
-            node = IntVal(Parser.lexer.next.value)
+            node = IntVal(Parser.lexer.next.value, [])
             Parser.lexer.select_next()
             return node
 
@@ -151,7 +151,7 @@ class Parser:
             operator = Parser.lexer.next.type
             Parser.lexer.select_next()
             right = Parser.parse_factor()
-            result = BinOp(operator, result, right)
+            result = BinOp(operator, [result, right])
 
         return result
 
@@ -163,7 +163,7 @@ class Parser:
             operator = Parser.lexer.next.type
             Parser.lexer.select_next()
             right = Parser.parse_term()
-            result = BinOp(operator, result, right)
+            result = BinOp(operator, [result, right])
 
         return result
 
