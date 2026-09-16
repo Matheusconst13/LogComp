@@ -6,7 +6,7 @@ This repository is monitored by Compiler Tester for automatic compilation status
 
 ## Diagrama Sintático
 
-![Diagrama Sintático](https://compiler-tester.insper-comp.com.br/ds?version=v1.1)
+![Diagrama Sintático](https://compiler-tester.insper-comp.com.br/ds?version=v1.2)
 
 ## EBNF
 

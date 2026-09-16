@@ -53,6 +53,64 @@ class Lexer:
             raise Exception("[Lexer] Invalid Symbol '" + current + "'")
 
 
+class Node:
+    def __init__(self, value, children=None):
+        self.value = value
+        if children is None:
+            children = []
+        self.children = children
+
+    def evaluate(self):
+        raise Exception("[Semantic] evaluate() not implemented for this node")
+
+
+class IntVal(Node):
+    def __init__(self, value):
+        super().__init__(value, [])
+
+    def evaluate(self):
+        return self.value
+
+
+class UnOp(Node):
+    def __init__(self, value, child):
+        super().__init__(value, [child])
+
+    def evaluate(self):
+        operand = self.children[0].evaluate()
+
+        if self.value == "PLUS":
+            return operand
+        elif self.value == "MINUS":
+            return -operand
+        else:
+            raise Exception("[Semantic] Invalid unary operator " + str(self.value))
+
+
+class BinOp(Node):
+    def __init__(self, value, left, right):
+        super().__init__(value, [left, right])
+
+    def evaluate(self):
+        left = self.children[0].evaluate()
+        right = self.children[1].evaluate()
+
+        if self.value == "PLUS":
+            return left + right
+        elif self.value == "MINUS":
+            return left - right
+        elif self.value == "MULT":
+            return left * right
+        elif self.value == "DIV":
+            # Divisao inteira truncada em direcao ao zero (estilo C)
+            quotient = left // right
+            if (left % right != 0) and ((left < 0) != (right < 0)):
+                quotient = quotient + 1
+            return quotient
+        else:
+            raise Exception("[Semantic] Invalid binary operator " + str(self.value))
+
+
 class Parser:
     lexer = None
 
@@ -60,28 +118,28 @@ class Parser:
     def parse_factor():
         if Parser.lexer.next.type == "PLUS":
             Parser.lexer.select_next()
-            result = Parser.parse_factor()
-            return result
+            child = Parser.parse_factor()
+            return UnOp("PLUS", child)
 
         if Parser.lexer.next.type == "MINUS":
             Parser.lexer.select_next()
-            result = Parser.parse_factor()
-            return -result
+            child = Parser.parse_factor()
+            return UnOp("MINUS", child)
 
         if Parser.lexer.next.type == "OPEN_PAR":
             Parser.lexer.select_next()
-            result = Parser.parse_expression()
+            node = Parser.parse_expression()
 
             if Parser.lexer.next.type != "CLOSE_PAR":
                 raise Exception("[Parser] Unexpected token " + Parser.lexer.next.type)
 
             Parser.lexer.select_next()
-            return result
+            return node
 
         if Parser.lexer.next.type == "INT":
-            result = Parser.lexer.next.value
+            node = IntVal(Parser.lexer.next.value)
             Parser.lexer.select_next()
-            return result
+            return node
 
         raise Exception("[Parser] Unexpected token " + Parser.lexer.next.type)
 
@@ -92,16 +150,8 @@ class Parser:
         while Parser.lexer.next.type == "MULT" or Parser.lexer.next.type == "DIV":
             operator = Parser.lexer.next.type
             Parser.lexer.select_next()
-            value = Parser.parse_factor()
-
-            if operator == "MULT":
-                result = result * value
-            else:
-                # Divisao inteira truncada em direcao ao zero (estilo C)
-                quotient = result // value
-                if (result % value != 0) and ((result < 0) != (value < 0)):
-                    quotient = quotient + 1
-                result = quotient
+            right = Parser.parse_factor()
+            result = BinOp(operator, result, right)
 
         return result
 
@@ -112,12 +162,8 @@ class Parser:
         while Parser.lexer.next.type == "PLUS" or Parser.lexer.next.type == "MINUS":
             operator = Parser.lexer.next.type
             Parser.lexer.select_next()
-            value = Parser.parse_term()
-
-            if operator == "PLUS":
-                result = result + value
-            else:
-                result = result - value
+            right = Parser.parse_term()
+            result = BinOp(operator, result, right)
 
         return result
 
@@ -125,20 +171,20 @@ class Parser:
     def run(code):
         Parser.lexer = Lexer(code)
         Parser.lexer.select_next()
-        result = Parser.parse_expression()
+        tree = Parser.parse_expression()
 
         if Parser.lexer.next.type != "EOF":
             raise Exception("[Parser] Unexpected token " + Parser.lexer.next.type)
 
-        return result
+        return tree
 
 
 def main():
     if len(sys.argv) != 2:
         raise Exception("[Parser] Uso: python3 main.py '<expressao>'")
 
-    result = Parser.run(sys.argv[1])
-    print(result)
+    tree = Parser.run(sys.argv[1])
+    print(tree.evaluate())
 
 
 if __name__ == "__main__":
