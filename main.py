@@ -16,23 +16,15 @@ class Variable:
 
 class SymbolTable:
     def __init__(self):
-        self._table = {}
+        self.table = {}
 
-    @property
-    def table(self):
-        return self._table
-
-    @table.setter
-    def table(self, new_table):
-        self._table = new_table
-
-    def get(self, name):
-        if name not in self._table:
+    def get_value(self, name):
+        if name not in self.table:
             raise Exception("[Semantic] Undefined variable '" + name + "'")
-        return self._table[name]
+        return self.table[name]
 
-    def set(self, name, value):
-        self._table[name] = Variable(value)
+    def set_value(self, name, value):
+        self.table[name] = Variable(value)
 
 
 class Token:
@@ -175,7 +167,7 @@ class Identifier(Node):
         super().__init__(value, children)
 
     def evaluate(self, st):
-        return st.get(self.value).value
+        return st.get_value(self.value).value
 
 
 class Print(Node):
@@ -193,7 +185,7 @@ class Assignment(Node):
 
     def evaluate(self, st):
         name = self.children[0].value
-        st.set(name, self.children[1].evaluate(st))
+        st.set_value(name, self.children[1].evaluate(st))
 
 
 class Block(Node):
