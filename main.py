@@ -1,4 +1,38 @@
+import re
 import sys
+
+
+class PrePro:
+    @staticmethod
+    def filter(code):
+        # Remove tudo entre "//" e o fim da linha, preservando o "\n"
+        return re.sub(r"//.*", "", code)
+
+
+class Variable:
+    def __init__(self, value):
+        self.value = value
+
+
+class SymbolTable:
+    def __init__(self):
+        self._table = {}
+
+    @property
+    def table(self):
+        return self._table
+
+    @table.setter
+    def table(self, new_table):
+        self._table = new_table
+
+    def get(self, name):
+        if name not in self._table:
+            raise Exception("[Semantic] Undefined variable '" + name + "'")
+        return self._table[name]
+
+    def set(self, name, value):
+        self._table[name] = Variable(value)
 
 
 class Token:
@@ -8,17 +42,20 @@ class Token:
 
 
 class Lexer:
+    RESERVED_WORDS = {
+        "Println": "PRINT",
+    }
+
     def __init__(self, source):
         self.source = source
         self.position = 0
         self.next = None
 
     def select_next(self):
-        # Ignora espacos em branco
-        while self.position < len(self.source) and self.source[self.position] == " ":
+        # Ignora espacos, tabs e "\r" (o "\n" vira o token END)
+        while self.position < len(self.source) and self.source[self.position] in " \t\r":
             self.position += 1
 
-        # Fim da entrada
         if self.position >= len(self.source):
             self.next = Token("EOF", "")
             return
@@ -43,12 +80,30 @@ class Lexer:
         elif current == ")":
             self.next = Token("CLOSE_PAR", ")")
             self.position += 1
+        elif current == "=":
+            self.next = Token("ASSIGN", "=")
+            self.position += 1
+        elif current == "\n":
+            self.next = Token("END", "\n")
+            self.position += 1
         elif current.isdigit():
             digits = ""
             while self.position < len(self.source) and self.source[self.position].isdigit():
                 digits += self.source[self.position]
                 self.position += 1
             self.next = Token("INT", int(digits))
+        elif current.isalpha():
+            word = ""
+            while self.position < len(self.source) and (
+                self.source[self.position].isalnum() or self.source[self.position] == "_"
+            ):
+                word += self.source[self.position]
+                self.position += 1
+
+            if word in Lexer.RESERVED_WORDS:
+                self.next = Token(Lexer.RESERVED_WORDS[word], word)
+            else:
+                self.next = Token("IDEN", word)
         else:
             raise Exception("[Lexer] Invalid Symbol '" + current + "'")
 
@@ -60,7 +115,7 @@ class Node:
             children = []
         self.children = children
 
-    def evaluate(self):
+    def evaluate(self, st):
         raise Exception("[Semantic] evaluate() not implemented for this node")
 
 
@@ -68,7 +123,7 @@ class IntVal(Node):
     def __init__(self, value, children):
         super().__init__(value, children)
 
-    def evaluate(self):
+    def evaluate(self, st):
         return self.value
 
 
@@ -76,8 +131,8 @@ class UnOp(Node):
     def __init__(self, value, children):
         super().__init__(value, children)
 
-    def evaluate(self):
-        operand = self.children[0].evaluate()
+    def evaluate(self, st):
+        operand = self.children[0].evaluate(st)
 
         if self.value == "PLUS":
             return operand
@@ -91,9 +146,9 @@ class BinOp(Node):
     def __init__(self, value, children):
         super().__init__(value, children)
 
-    def evaluate(self):
-        left = self.children[0].evaluate()
-        right = self.children[1].evaluate()
+    def evaluate(self, st):
+        left = self.children[0].evaluate(st)
+        right = self.children[1].evaluate(st)
 
         if self.value == "PLUS":
             return left + right
@@ -114,8 +169,101 @@ class BinOp(Node):
             raise Exception("[Semantic] Invalid binary operator " + str(self.value))
 
 
+class Identifier(Node):
+    # Folha: value guarda o NOME da variavel; o valor fica na SymbolTable
+    def __init__(self, value, children=None):
+        super().__init__(value, children)
+
+    def evaluate(self, st):
+        return st.get(self.value).value
+
+
+class Print(Node):
+    def __init__(self, value, children):
+        super().__init__(value, children)
+
+    def evaluate(self, st):
+        print(self.children[0].evaluate(st))
+
+
+class Assignment(Node):
+    # children[0] = Identifier (so o nome e usado), children[1] = expressao
+    def __init__(self, value, children):
+        super().__init__(value, children)
+
+    def evaluate(self, st):
+        name = self.children[0].value
+        st.set(name, self.children[1].evaluate(st))
+
+
+class Block(Node):
+    def __init__(self, value, children):
+        super().__init__(value, children)
+
+    def evaluate(self, st):
+        for child in self.children:
+            child.evaluate(st)
+
+
+class NoOp(Node):
+    def __init__(self, value=None, children=None):
+        super().__init__(value, children)
+
+    def evaluate(self, st):
+        pass
+
+
 class Parser:
     lexer = None
+
+    @staticmethod
+    def parse_program():
+        children = []
+        while Parser.lexer.next.type != "EOF":
+            children.append(Parser.parse_statement())
+        return Block("BLOCK", children)
+
+    @staticmethod
+    def parse_statement():
+        token = Parser.lexer.next
+
+        if token.type == "END":
+            node = NoOp()
+
+        elif token.type == "IDEN":
+            identifier = Identifier(token.value)
+            Parser.lexer.select_next()
+
+            if Parser.lexer.next.type != "ASSIGN":
+                raise Exception("[Parser] Expected '=' after identifier, got " + Parser.lexer.next.type)
+            Parser.lexer.select_next()
+
+            node = Assignment("ASSIGN", [identifier, Parser.parse_expression()])
+
+        elif token.type == "PRINT":
+            Parser.lexer.select_next()
+
+            if Parser.lexer.next.type != "OPEN_PAR":
+                raise Exception("[Parser] Expected '(' after Println, got " + Parser.lexer.next.type)
+            Parser.lexer.select_next()
+
+            expression = Parser.parse_expression()
+
+            if Parser.lexer.next.type != "CLOSE_PAR":
+                raise Exception("[Parser] Expected ')', got " + Parser.lexer.next.type)
+            Parser.lexer.select_next()
+
+            node = Print("PRINT", [expression])
+
+        else:
+            raise Exception("[Parser] Unexpected token " + token.type)
+
+        # Toda instrucao termina com END ("\n")
+        if Parser.lexer.next.type != "END":
+            raise Exception("[Parser] Expected end of line, got " + Parser.lexer.next.type)
+        Parser.lexer.select_next()
+
+        return node
 
     @staticmethod
     def parse_factor():
@@ -141,6 +289,11 @@ class Parser:
 
         if Parser.lexer.next.type == "INT":
             node = IntVal(Parser.lexer.next.value, [])
+            Parser.lexer.select_next()
+            return node
+
+        if Parser.lexer.next.type == "IDEN":
+            node = Identifier(Parser.lexer.next.value)
             Parser.lexer.select_next()
             return node
 
@@ -174,7 +327,7 @@ class Parser:
     def run(code):
         Parser.lexer = Lexer(code)
         Parser.lexer.select_next()
-        tree = Parser.parse_expression()
+        tree = Parser.parse_program()
 
         if Parser.lexer.next.type != "EOF":
             raise Exception("[Parser] Unexpected token " + Parser.lexer.next.type)
@@ -184,10 +337,17 @@ class Parser:
 
 def main():
     if len(sys.argv) != 2:
-        raise Exception("[Parser] Uso: python3 main.py '<expressao>'")
+        raise Exception("[Parser] Uso: python3 main.py <arquivo.go>")
 
-    tree = Parser.run(sys.argv[1])
-    print(tree.evaluate())
+    with open(sys.argv[1], "r") as file:
+        code = file.read() + "\n"
+
+    code = PrePro.filter(code)
+
+    tree = Parser.run(code)
+
+    st = SymbolTable()
+    tree.evaluate(st)
 
 
 if __name__ == "__main__":
