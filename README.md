@@ -23,8 +23,7 @@ BOOL_TERM       = REL_EXPRESSION, { "&&", REL_EXPRESSION } ;
 REL_EXPRESSION  = EXPRESSION, { ("==" | ">" | "<"), EXPRESSION } ;
 EXPRESSION      = TERM, { ("+" | "-"), TERM } ;
 TERM            = FACTOR, { ("*" | "/"), FACTOR } ;
-FACTOR          = NUMBER | IDENTIFIER | ("+" | "-" | "!"), FACTOR
-                | "(", BOOL_EXPRESSION, ")" | "Scanln", "(", ")" ;
+FACTOR          = NUMBER | IDENTIFIER | ("+" | "-" | "!"), FACTOR | "(", BOOL_EXPRESSION, ")" | "Scanln", "(", ")" ;
 IDENTIFIER      = LETTER, { LETTER | DIGIT | "_" } ;
 NUMBER          = DIGIT, { DIGIT } ;
 LETTER          = "a" | "b" | ... | "z" | "A" | "B" | ... | "Z" ;
