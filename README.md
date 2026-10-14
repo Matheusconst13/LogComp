@@ -11,23 +11,19 @@ This repository is monitored by Compiler Tester for automatic compilation status
 ## EBNF
 
 ```ebnf
-PROGRAM         = { STATEMENT } ;
-BLOCK           = "{", "\n", { STATEMENT }, "}" ;
-STATEMENT       = ( ASSIGNMENT | PRINT | IF | WHILE | ε ), "\n" ;
-ASSIGNMENT      = IDENTIFIER, "=", BOOL_EXPRESSION ;
-PRINT           = "Println", "(", BOOL_EXPRESSION, ")" ;
-IF              = "if", BOOL_EXPRESSION, BLOCK, [ "else", BLOCK ] ;
-WHILE           = "for", BOOL_EXPRESSION, BLOCK ;
-BOOL_EXPRESSION = BOOL_TERM, { "||", BOOL_TERM } ;
-BOOL_TERM       = REL_EXPRESSION, { "&&", REL_EXPRESSION } ;
-REL_EXPRESSION  = EXPRESSION, { ("==" | ">" | "<"), EXPRESSION } ;
-EXPRESSION      = TERM, { ("+" | "-"), TERM } ;
-TERM            = FACTOR, { ("*" | "/"), FACTOR } ;
-FACTOR          = NUMBER | IDENTIFIER | ("+" | "-" | "!"), FACTOR | "(", BOOL_EXPRESSION, ")" | "Scanln", "(", ")" ;
-IDENTIFIER      = LETTER, { LETTER | DIGIT | "_" } ;
-NUMBER          = DIGIT, { DIGIT } ;
-LETTER          = "a" | "b" | ... | "z" | "A" | "B" | ... | "Z" ;
-DIGIT           = "0" | "1" | ... | "9" ;
+PROGRAM        = { STATEMENT } ;
+BLOCK          = "{", "\n", { STATEMENT }, "}" ;
+STATEMENT      = ( ( "Println", "(", BOOLEXPRESSION, ")" ) | ( "for", BOOLEXPRESSION, BLOCK ) | ( "if", BOOLEXPRESSION, BLOCK, ( "else", BLOCK ) | ε ) | ( IDENTIFIER, "=", BOOLEXPRESSION ) | BLOCK | ε ), "\n" ;
+BOOLEXPRESSION = BOOLTERM, { "||", BOOLTERM } ;
+BOOLTERM       = RELEXPRESSION, { "&&", RELEXPRESSION } ;
+RELEXPRESSION  = EXPRESSION, { ("==" | ">" | "<"), EXPRESSION } ;
+EXPRESSION     = TERM, { ("+" | "-"), TERM } ;
+TERM           = FACTOR, { ("*" | "/"), FACTOR } ;
+FACTOR         = NUMBER | IDENTIFIER | ("!" | "+" | "-"), FACTOR | "(", BOOLEXPRESSION, ")" | "Scanln", "(", ")" ;
+IDENTIFIER     = LETTER, { LETTER | DIGIT | "_" } ;
+NUMBER         = DIGIT, { DIGIT } ;
+LETTER         = "a" | "b" | ... | "z" | "A" | "B" | ... | "Z" ;
+DIGIT          = "0" | "1" | ... | "9" ;
 ```
 
 ## Tokens

@@ -368,6 +368,9 @@ class Parser:
             condition = Parser.parse_bool_expression()
             node = While("WHILE", [condition, Parser.parse_block()])
 
+        elif token.type == "OPEN_BRA":
+            node = Parser.parse_block()
+
         else:
             raise Exception("[Parser] Unexpected token " + token.type)
 
