@@ -1,6 +1,6 @@
-i = 1
-n = 5
-f = 1
+var i int = 1
+var n int = 5
+var f int = 1
 if n < 2 {
     f = 1
 } else {

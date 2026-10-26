@@ -5,26 +5,45 @@ import sys
 class PrePro:
     @staticmethod
     def filter(code):
-        # Remove tudo entre "//" e o fim da linha, preservando o "\n"
-        return re.sub(r"//.*", "", code)
+        # Remove tudo entre "//" e o fim da linha, preservando o "\n".
+        # Strings entre aspas sao mantidas intactas (ex: "http://x" nao e comentario)
+        return re.sub(r'("[^"\n]*")|//.*', lambda match: match.group(1) or "", code)
 
 
 class Variable:
-    def __init__(self, value):
+    def __init__(self, value, type):
         self.value = value
+        self.type = type
 
 
 class SymbolTable:
+    # Valor inicial de uma variavel declarada sem atribuicao (zero value do Go)
+    DEFAULT_VALUES = {"int": 0, "string": "", "bool": False}
+
     def __init__(self):
         self.table = {}
+
+    def create_variable(self, name, type):
+        if name in self.table:
+            raise Exception("[Semantic] Variable '" + name + "' already declared")
+        self.table[name] = Variable(SymbolTable.DEFAULT_VALUES[type], type)
 
     def get_value(self, name):
         if name not in self.table:
             raise Exception("[Semantic] Undefined variable '" + name + "'")
         return self.table[name]
 
-    def set_value(self, name, value):
-        self.table[name] = Variable(value)
+    def set_value(self, name, variable):
+        if name not in self.table:
+            raise Exception("[Semantic] Variable '" + name + "' not declared")
+
+        declared_type = self.table[name].type
+        if variable.type != declared_type:
+            raise Exception(
+                "[Semantic] Cannot assign " + variable.type + " to variable '" + name + "' of type " + declared_type
+            )
+
+        self.table[name] = Variable(variable.value, declared_type)
 
 
 class Token:
@@ -40,7 +59,10 @@ class Lexer:
         "if": "IF",
         "else": "ELSE",
         "for": "WHILE",
+        "var": "VAR",
     }
+
+    TYPES = ("int", "string", "bool")
 
     def __init__(self, source):
         self.source = source
@@ -114,6 +136,22 @@ class Lexer:
         elif current == "\n":
             self.next = Token("END", "\n")
             self.position += 1
+        elif current == '"':
+            # Tudo entre as aspas vira o valor do token STR (sem quebra de linha)
+            self.position += 1
+            text = ""
+            while self.position < len(self.source) and self.source[self.position] != '"':
+                if self.source[self.position] == "\n":
+                    raise Exception("[Lexer] Unterminated string")
+                text += self.source[self.position]
+                self.position += 1
+
+            if self.position >= len(self.source):
+                raise Exception("[Lexer] Unterminated string")
+
+            # Consome a aspa de fechamento
+            self.position += 1
+            self.next = Token("STR", text)
         elif current.isdigit():
             digits = ""
             while self.position < len(self.source) and self.source[self.position].isdigit():
@@ -130,6 +168,10 @@ class Lexer:
 
             if word in Lexer.RESERVED_WORDS:
                 self.next = Token(Lexer.RESERVED_WORDS[word], word)
+            elif word in Lexer.TYPES:
+                self.next = Token("TYPE", word)
+            elif word == "true" or word == "false":
+                self.next = Token("BOOL", word == "true")
             else:
                 self.next = Token("IDEN", word)
         else:
@@ -152,7 +194,37 @@ class IntVal(Node):
         super().__init__(value, children)
 
     def evaluate(self, st):
-        return self.value
+        return Variable(self.value, "int")
+
+
+class BoolVal(Node):
+    def __init__(self, value, children=None):
+        super().__init__(value, children)
+
+    def evaluate(self, st):
+        return Variable(self.value, "bool")
+
+
+class StringVal(Node):
+    def __init__(self, value, children=None):
+        super().__init__(value, children)
+
+    def evaluate(self, st):
+        return Variable(self.value, "string")
+
+
+def to_text(variable):
+    # Representacao de um valor como texto (bool sai como no Go: true/false)
+    if variable.type == "bool":
+        return "true" if variable.value else "false"
+    return str(variable.value)
+
+
+def evaluate_condition(node, st, statement):
+    condition = node.evaluate(st)
+    if condition.type != "bool":
+        raise Exception("[Semantic] " + statement + " condition must be bool, got " + condition.type)
+    return condition.value
 
 
 class UnOp(Node):
@@ -162,12 +234,14 @@ class UnOp(Node):
     def evaluate(self, st):
         operand = self.children[0].evaluate(st)
 
-        if self.value == "PLUS":
-            return operand
-        elif self.value == "MINUS":
-            return -operand
+        if self.value in ("PLUS", "MINUS"):
+            if operand.type != "int":
+                raise Exception("[Semantic] Unary " + self.value + " requires int, got " + operand.type)
+            return Variable(operand.value if self.value == "PLUS" else -operand.value, "int")
         elif self.value == "NOT":
-            return 0 if operand != 0 else 1
+            if operand.type != "bool":
+                raise Exception("[Semantic] Operator ! requires bool, got " + operand.type)
+            return Variable(not operand.value, "bool")
         else:
             raise Exception("[Semantic] Invalid unary operator " + str(self.value))
 
@@ -176,35 +250,61 @@ class BinOp(Node):
     def __init__(self, value, children):
         super().__init__(value, children)
 
+    def type_error(self, left, right):
+        return Exception(
+            "[Semantic] Invalid operand types for " + self.value + ": " + left.type + " and " + right.type
+        )
+
     def evaluate(self, st):
         left = self.children[0].evaluate(st)
         right = self.children[1].evaluate(st)
 
         if self.value == "PLUS":
-            return left + right
-        elif self.value == "MINUS":
-            return left - right
-        elif self.value == "MULT":
-            return left * right
-        elif self.value == "DIV":
-            if right == 0:
+            # "+" e soma entre ints ou concatenacao entre strings (sem misturar tipos, como no Go)
+            if left.type == "int" and right.type == "int":
+                return Variable(left.value + right.value, "int")
+            if left.type == "string" and right.type == "string":
+                return Variable(left.value + right.value, "string")
+            raise self.type_error(left, right)
+
+        elif self.value in ("MINUS", "MULT", "DIV"):
+            if left.type != "int" or right.type != "int":
+                raise self.type_error(left, right)
+
+            if self.value == "MINUS":
+                return Variable(left.value - right.value, "int")
+            if self.value == "MULT":
+                return Variable(left.value * right.value, "int")
+
+            if right.value == 0:
                 raise Exception("[Semantic] Division by zero")
 
             # Divisao inteira truncada em direcao ao zero (estilo C)
-            quotient = left // right
-            if (left % right != 0) and ((left < 0) != (right < 0)):
+            quotient = left.value // right.value
+            if (left.value % right.value != 0) and ((left.value < 0) != (right.value < 0)):
                 quotient = quotient + 1
-            return quotient
+            return Variable(quotient, "int")
+
         elif self.value == "EQ":
-            return 1 if left == right else 0
-        elif self.value == "GT":
-            return 1 if left > right else 0
-        elif self.value == "LT":
-            return 1 if left < right else 0
-        elif self.value == "AND":
-            return 1 if (left != 0 and right != 0) else 0
-        elif self.value == "OR":
-            return 1 if (left != 0 or right != 0) else 0
+            if left.type != right.type:
+                raise self.type_error(left, right)
+            return Variable(left.value == right.value, "bool")
+
+        elif self.value in ("GT", "LT"):
+            # Ordem so existe entre ints ou entre strings (lexicografica)
+            if left.type != right.type or left.type == "bool":
+                raise self.type_error(left, right)
+            if self.value == "GT":
+                return Variable(left.value > right.value, "bool")
+            return Variable(left.value < right.value, "bool")
+
+        elif self.value in ("AND", "OR"):
+            if left.type != "bool" or right.type != "bool":
+                raise self.type_error(left, right)
+            if self.value == "AND":
+                return Variable(left.value and right.value, "bool")
+            return Variable(left.value or right.value, "bool")
+
         else:
             raise Exception("[Semantic] Invalid binary operator " + str(self.value))
 
@@ -215,7 +315,7 @@ class Identifier(Node):
         super().__init__(value, children)
 
     def evaluate(self, st):
-        return st.get_value(self.value).value
+        return st.get_value(self.value)
 
 
 class Print(Node):
@@ -223,7 +323,7 @@ class Print(Node):
         super().__init__(value, children)
 
     def evaluate(self, st):
-        print(self.children[0].evaluate(st))
+        print(to_text(self.children[0].evaluate(st)))
 
 
 class Read(Node):
@@ -234,9 +334,22 @@ class Read(Node):
     def evaluate(self, st):
         entry = input()
         try:
-            return int(entry.strip())
+            return Variable(int(entry.strip()), "int")
         except ValueError:
             raise Exception("[Semantic] Scanln expected an integer, got '" + entry + "'")
+
+
+class VarDec(Node):
+    # value = tipo da variavel, children[0] = Identifier, children[1] = expressao (opcional)
+    def __init__(self, value, children):
+        super().__init__(value, children)
+
+    def evaluate(self, st):
+        name = self.children[0].value
+        st.create_variable(name, self.value)
+
+        if len(self.children) == 2:
+            st.set_value(name, self.children[1].evaluate(st))
 
 
 class Assignment(Node):
@@ -255,7 +368,7 @@ class If(Node):
         super().__init__(value, children)
 
     def evaluate(self, st):
-        if self.children[0].evaluate(st) != 0:
+        if evaluate_condition(self.children[0], st, "if"):
             self.children[1].evaluate(st)
         elif len(self.children) == 3:
             self.children[2].evaluate(st)
@@ -267,7 +380,7 @@ class While(Node):
         super().__init__(value, children)
 
     def evaluate(self, st):
-        while self.children[0].evaluate(st) != 0:
+        while evaluate_condition(self.children[0], st, "for"):
             self.children[1].evaluate(st)
 
 
@@ -334,6 +447,26 @@ class Parser:
             Parser.lexer.select_next()
 
             node = Assignment("ASSIGN", [identifier, Parser.parse_bool_expression()])
+
+        elif token.type == "VAR":
+            Parser.lexer.select_next()
+
+            if Parser.lexer.next.type != "IDEN":
+                raise Exception("[Parser] Expected identifier after var, got " + Parser.lexer.next.type)
+            identifier = Identifier(Parser.lexer.next.value)
+            Parser.lexer.select_next()
+
+            if Parser.lexer.next.type != "TYPE":
+                raise Exception("[Parser] Expected type after identifier, got " + Parser.lexer.next.type)
+            var_type = Parser.lexer.next.value
+            Parser.lexer.select_next()
+
+            children = [identifier]
+            if Parser.lexer.next.type == "ASSIGN":
+                Parser.lexer.select_next()
+                children.append(Parser.parse_bool_expression())
+
+            node = VarDec(var_type, children)
 
         elif token.type == "PRINT":
             Parser.lexer.select_next()
@@ -423,6 +556,16 @@ class Parser:
 
         if Parser.lexer.next.type == "INT":
             node = IntVal(Parser.lexer.next.value, [])
+            Parser.lexer.select_next()
+            return node
+
+        if Parser.lexer.next.type == "STR":
+            node = StringVal(Parser.lexer.next.value, [])
+            Parser.lexer.select_next()
+            return node
+
+        if Parser.lexer.next.type == "BOOL":
+            node = BoolVal(Parser.lexer.next.value, [])
             Parser.lexer.select_next()
             return node
 

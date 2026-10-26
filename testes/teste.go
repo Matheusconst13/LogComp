@@ -1,9 +1,10 @@
 // Roteiro 6 - programa de testes
 // Cobre: leitura do terminal, condicionais e lacos com &&, || e !
+// (a partir da v2.2 as variaveis precisam ser declaradas com var)
 
 // --- Leitura do terminal ---
-a = Scanln()
-b = Scanln()
+var a int = Scanln()
+var b int = Scanln()
 
 Println(a)
 Println(b)
@@ -39,8 +40,8 @@ if a + b > 4 && !(a == b) {
 }
 
 // --- Laco com OR: fatorial de b ---
-i = 1
-f = 1
+var i int = 1
+var f int = 1
 if b < 2 {
     f = 1
 } else {
@@ -52,8 +53,8 @@ if b < 2 {
 Println(f)
 
 // --- Laco com AND: soma de a ate b-1, com guarda de seguranca ---
-s = 0
-k = a
+var s int = 0
+var k int = a
 for k < b && s < 1000 {
     s = s + k
     k = k + 1
@@ -61,8 +62,8 @@ for k < b && s < 1000 {
 Println(s)
 
 // --- Laco com NOT: contagem regressiva a partir de b ---
-c = 0
-m = b
+var c int = 0
+var m int = b
 for !(m == 0) {
     c = c + 1
     m = m - 1
@@ -70,7 +71,7 @@ for !(m == 0) {
 Println(c)
 
 // --- Expressoes booleanas fora de condicionais ---
-t = a < b && b > 0
+var t bool = a < b && b > 0
 Println(t)
 Println(!t)
 Println(a == a || a > b)
