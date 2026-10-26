@@ -259,11 +259,12 @@ class BinOp(Node):
         )
 
         if self.value == "PLUS":
-            # "+" e soma entre ints ou concatenacao entre strings (sem misturar tipos, como no Go)
+            # Se algum lado e string, "+" concatena (o outro lado vira texto: 1 -> "1", true -> "true").
+            # Precisa ser testado antes da soma, senao int + string cairia no erro de tipos
+            if left.type == "string" or right.type == "string":
+                return Variable(to_text(left) + to_text(right), "string")
             if left.type == "int" and right.type == "int":
                 return Variable(left.value + right.value, "int")
-            if left.type == "string" and right.type == "string":
-                return Variable(left.value + right.value, "string")
             raise type_error
 
         elif self.value in ("MINUS", "MULT", "DIV"):

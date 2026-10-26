@@ -50,12 +50,12 @@ Toda variável precisa ser declarada com `var nome tipo` (opcionalmente com
 tipo: `0`, `""` ou `false`. Redeclarar uma variável, atribuir a uma variável
 não declarada ou atribuir um valor de outro tipo é erro.
 
-As operações seguem as regras do Go (sem conversão implícita):
+As operações e os tipos aceitos em cada uma:
 
 | Operador | Operandos | Resultado |
 | --- | --- | --- |
 | `+` | `int` e `int` | `int` (soma) |
-| `+` | `string` e `string` | `string` (concatenação) |
+| `+` | `string` e qualquer tipo (em qualquer ordem) | `string` (concatenação; `1` vira `"1"` e `true` vira `"true"`) |
 | `-` `*` `/` | `int` e `int` | `int` |
 | `==` | dois operandos do mesmo tipo | `bool` |
 | `>` `<` | `int` e `int`, ou `string` e `string` | `bool` |
@@ -64,7 +64,7 @@ As operações seguem as regras do Go (sem conversão implícita):
 | `+` `-` unários | `int` | `int` |
 
 As condições de `if` e `for` precisam ser `bool`. `Scanln()` devolve `int`.
-`Println` imprime booleanos como `true`/`false`.
+`Println` imprime booleanos como `true`/`false`. Somar `int` com `bool` é erro.
 
 ## Como executar
 
@@ -76,7 +76,7 @@ python3 main.py testes/teste.go < testes/teste.in
 
 `testes/roteiro7.go` é o programa de testes do Roteiro 7. Ele declara e opera
 variáveis de todos os tipos (com e sem valor inicial), concatena strings,
-compara strings e booleanos, roda o fatorial do Roteiro 6 e usa strings para
+concatena string com `int` e `bool`, compara strings e booleanos, roda o fatorial do Roteiro 6 e usa strings para
 controlar um `if` e um `for`. Entrada em `testes/roteiro7.in` e saída esperada
 em `testes/roteiro7.out`:
 
@@ -84,7 +84,7 @@ em `testes/roteiro7.out`:
 python3 main.py testes/roteiro7.go < testes/roteiro7.in | diff - testes/roteiro7.out
 ```
 
-`testes/erros/` tem um programa por erro de tipo (soma de `int` com `string`,
+`testes/erros/` tem um programa por erro de tipo (soma de `int` com `bool`,
 `bool` em operação aritmética, atribuição e declaração com tipo errado,
 variável não declarada ou redeclarada, `&&` com `int`, `!` e `-` em string,
 `==` entre tipos diferentes, `if`/`for` com condição que não é `bool` e string
