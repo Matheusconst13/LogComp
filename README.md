@@ -13,15 +13,15 @@ This repository is monitored by Compiler Tester for automatic compilation status
 ```ebnf
 PROGRAM        = { STATEMENT } ;
 BLOCK          = "{", "\n", { STATEMENT }, "}" ;
-STATEMENT      = ( ( "Println", "(", BOOLEXPRESSION, ")" ) | ( "for", BOOLEXPRESSION, BLOCK ) | ( "if", BOOLEXPRESSION, BLOCK, ( "else", BLOCK ) | ε ) | ( IDENTIFIER, "=", BOOLEXPRESSION ) | ( "var", IDENTIFIER, TYPE, ( "=", BOOLEXPRESSION ) | ε ) | BLOCK | ε ), "\n" ;
+STATEMENT      = ( "var", IDENTIFIER, TYPE, ( ε | "=", BOOLEXPRESSION ) | ( "Println", "(", BOOLEXPRESSION, ")" ) | ( "for", BOOLEXPRESSION, BLOCK ) | ( "if", BOOLEXPRESSION, BLOCK, ( ε | "else", BLOCK ) | ) | BLOCK | IDENTIFIER, "=", BOOLEXPRESSION | ε ), "\n" ;
 BOOLEXPRESSION = BOOLTERM, { "||", BOOLTERM } ;
 BOOLTERM       = RELEXPRESSION, { "&&", RELEXPRESSION } ;
 RELEXPRESSION  = EXPRESSION, { ("==" | ">" | "<"), EXPRESSION } ;
 EXPRESSION     = TERM, { ("+" | "-"), TERM } ;
 TERM           = FACTOR, { ("*" | "/"), FACTOR } ;
-FACTOR         = NUMBER | STRING | BOOL | IDENTIFIER | ("!" | "+" | "-"), FACTOR | "(", BOOLEXPRESSION, ")" | "Scanln", "(", ")" ;
-TYPE           = "int" | "string" | "bool" ;
-BOOL           = "true" | "false" ;
+FACTOR         = NUMBER | BOOLEAN | STRING | IDENTIFIER | ("!" | "+" | "-"), FACTOR | "(", BOOLEXPRESSION, ")" | "Scanln", "(", ")" ;
+TYPE           = "string" | "int" | "bool" ;
+BOOLEAN        = "true" | "false" ;
 STRING         = '"', { "..." }, '"' ;
 IDENTIFIER     = LETTER, { LETTER | DIGIT | "_" } ;
 NUMBER         = DIGIT, { DIGIT } ;

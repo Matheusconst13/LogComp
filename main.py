@@ -250,14 +250,13 @@ class BinOp(Node):
     def __init__(self, value, children):
         super().__init__(value, children)
 
-    def type_error(self, left, right):
-        return Exception(
-            "[Semantic] Invalid operand types for " + self.value + ": " + left.type + " and " + right.type
-        )
-
     def evaluate(self, st):
         left = self.children[0].evaluate(st)
         right = self.children[1].evaluate(st)
+
+        type_error = Exception(
+            "[Semantic] Invalid operand types for " + self.value + ": " + left.type + " and " + right.type
+        )
 
         if self.value == "PLUS":
             # "+" e soma entre ints ou concatenacao entre strings (sem misturar tipos, como no Go)
@@ -265,11 +264,11 @@ class BinOp(Node):
                 return Variable(left.value + right.value, "int")
             if left.type == "string" and right.type == "string":
                 return Variable(left.value + right.value, "string")
-            raise self.type_error(left, right)
+            raise type_error
 
         elif self.value in ("MINUS", "MULT", "DIV"):
             if left.type != "int" or right.type != "int":
-                raise self.type_error(left, right)
+                raise type_error
 
             if self.value == "MINUS":
                 return Variable(left.value - right.value, "int")
@@ -287,20 +286,20 @@ class BinOp(Node):
 
         elif self.value == "EQ":
             if left.type != right.type:
-                raise self.type_error(left, right)
+                raise type_error
             return Variable(left.value == right.value, "bool")
 
         elif self.value in ("GT", "LT"):
             # Ordem so existe entre ints ou entre strings (lexicografica)
             if left.type != right.type or left.type == "bool":
-                raise self.type_error(left, right)
+                raise type_error
             if self.value == "GT":
                 return Variable(left.value > right.value, "bool")
             return Variable(left.value < right.value, "bool")
 
         elif self.value in ("AND", "OR"):
             if left.type != "bool" or right.type != "bool":
-                raise self.type_error(left, right)
+                raise type_error
             if self.value == "AND":
                 return Variable(left.value and right.value, "bool")
             return Variable(left.value or right.value, "bool")
