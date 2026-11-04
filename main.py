@@ -248,10 +248,10 @@ class Node:
         if children is None:
             children = []
         self.children = children
-        self.id = Node.newId()
+        self.id = Node.new_id()
 
     @staticmethod
-    def newId():
+    def new_id():
         Node.id += 1
         return Node.id
 

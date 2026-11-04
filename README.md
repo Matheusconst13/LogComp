@@ -74,7 +74,7 @@ mesmo prefixo da entrada (`teste.go` gera `teste.asm`).
 
 - A classe `Code` acumula as instruções (`append`) e escreve o arquivo com
   cabeçalho e rodapé (`dump`).
-- Cada nó recebe um id único (`Node.newId()`), usado nos rótulos de `if`
+- Cada nó recebe um id único (`Node.new_id()`), usado nos rótulos de `if`
   (`else_<id>`, `exit_<id>`) e `for` (`loop_<id>`, `exit_<id>`).
 - Cada variável guarda em `shift` o deslocamento na pilha: a primeira fica em
   `[EBP-4]`, a segunda em `[EBP-8]` e assim por diante.
