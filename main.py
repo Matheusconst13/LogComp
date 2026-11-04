@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 
@@ -11,9 +12,11 @@ class PrePro:
 
 
 class Variable:
-    def __init__(self, value, type):
+    # shift = deslocamento da variavel na pilha em relacao ao EBP ([EBP-shift])
+    def __init__(self, value, type, shift=0):
         self.value = value
         self.type = type
+        self.shift = shift
 
 
 class SymbolTable:
@@ -26,7 +29,10 @@ class SymbolTable:
     def create_variable(self, name, type):
         if name in self.table:
             raise Exception("[Semantic] Variable '" + name + "' already declared")
-        self.table[name] = Variable(SymbolTable.DEFAULT_VALUES[type], type)
+
+        # Cada variavel ocupa 4 bytes: a primeira fica em [EBP-4], a segunda em [EBP-8], ...
+        shift = 4 * (len(self.table) + 1)
+        self.table[name] = Variable(SymbolTable.DEFAULT_VALUES[type], type, shift)
 
     def get_value(self, name):
         if name not in self.table:
@@ -43,7 +49,7 @@ class SymbolTable:
                 "[Semantic] Cannot assign " + variable.type + " to variable '" + name + "' of type " + declared_type
             )
 
-        self.table[name] = Variable(variable.value, declared_type)
+        self.table[name] = Variable(variable.value, declared_type, self.table[name].shift)
 
 
 class Token:
@@ -178,15 +184,82 @@ class Lexer:
             raise Exception("[Lexer] Invalid Symbol '" + current + "'")
 
 
+class Code:
+    # Instrucoes assembly geradas pelos nos, na ordem em que foram adicionadas
+    instructions = []
+
+    @staticmethod
+    def append(code):
+        Code.instructions.append(code)
+
+    @staticmethod
+    def dump(filename):
+        with open(filename, "w") as file:
+            # Cabecalho: tudo ate o inicio do codigo gerado (versao Linux)
+            file.write(
+                "section .data\n"
+                '  format_out: db "%d", 10, 0 ; format do printf\n'
+                '  format_in: db "%d", 0 ; format do scanf\n'
+                "  scan_int: dd 0; 32-bits integer\n"
+                "\n"
+                "section .text\n"
+                "  extern printf\n"
+                "  extern scanf\n"
+                "  extern fflush\n"
+                "  global _start ; inicio do programa\n"
+                "\n"
+                "_start:\n"
+                "  push ebp ; guarda o EBP\n"
+                "  mov ebp, esp ; zera a pilha\n"
+                "\n"
+                "  ; aqui comeca o codigo gerado:\n"
+                "\n"
+            )
+
+            file.write("\n".join("  " + instruction for instruction in Code.instructions))
+
+            # Rodape: restaura a pilha e chama a interrupcao de saida
+            file.write(
+                "\n"
+                "\n"
+                "  ; aqui termina o codigo gerado\n"
+                "\n"
+                "  ; descarrega o buffer do printf (a saida via int 0x80 nao faz isso)\n"
+                "  push 0\n"
+                "  call fflush\n"
+                "  add esp, 4\n"
+                "\n"
+                "  mov esp, ebp ; reestabelece a pilha\n"
+                "  pop ebp\n"
+                "\n"
+                "  ; chamada da interrupcao de saida\n"
+                "  mov eax, 1\n"
+                "  xor ebx, ebx\n"
+                "  int 0x80\n"
+            )
+
+
 class Node:
+    # Contador global: cada no recebe um id unico, usado nos labels do assembly
+    id = 0
+
     def __init__(self, value, children=None):
         self.value = value
         if children is None:
             children = []
         self.children = children
+        self.id = Node.newId()
+
+    @staticmethod
+    def newId():
+        Node.id += 1
+        return Node.id
 
     def evaluate(self, st):
         raise Exception("[Semantic] evaluate() not implemented for this node")
+
+    def generate(self, st):
+        raise Exception("[Semantic] generate() not implemented for this node")
 
 
 class IntVal(Node):
@@ -196,6 +269,10 @@ class IntVal(Node):
     def evaluate(self, st):
         return Variable(self.value, "int")
 
+    def generate(self, st):
+        Code.append("mov eax, " + str(self.value))
+        return "int"
+
 
 class BoolVal(Node):
     def __init__(self, value, children=None):
@@ -204,6 +281,11 @@ class BoolVal(Node):
     def evaluate(self, st):
         return Variable(self.value, "bool")
 
+    def generate(self, st):
+        # true = 1, false = 0
+        Code.append("mov eax, " + ("1" if self.value else "0"))
+        return "bool"
+
 
 class StringVal(Node):
     def __init__(self, value, children=None):
@@ -211,6 +293,9 @@ class StringVal(Node):
 
     def evaluate(self, st):
         return Variable(self.value, "string")
+
+    def generate(self, st):
+        raise Exception("[Semantic] Code generation for strings is not supported")
 
 
 def to_text(variable):
@@ -225,6 +310,13 @@ def evaluate_condition(node, st, statement):
     if condition.type != "bool":
         raise Exception("[Semantic] " + statement + " condition must be bool, got " + condition.type)
     return condition.value
+
+
+def generate_condition(node, st, statement):
+    # Gera a condicao (resultado 0/1 em EAX) e confere que ela e bool
+    condition_type = node.generate(st)
+    if condition_type != "bool":
+        raise Exception("[Semantic] " + statement + " condition must be bool, got " + condition_type)
 
 
 class UnOp(Node):
@@ -242,6 +334,26 @@ class UnOp(Node):
             if operand.type != "bool":
                 raise Exception("[Semantic] Operator ! requires bool, got " + operand.type)
             return Variable(not operand.value, "bool")
+        else:
+            raise Exception("[Semantic] Invalid unary operator " + str(self.value))
+
+    def generate(self, st):
+        operand_type = self.children[0].generate(st)
+
+        if self.value in ("PLUS", "MINUS"):
+            if operand_type != "int":
+                raise Exception("[Semantic] Unary " + self.value + " requires int, got " + operand_type)
+            if self.value == "MINUS":
+                Code.append("neg eax")
+            return "int"
+        elif self.value == "NOT":
+            if operand_type != "bool":
+                raise Exception("[Semantic] Operator ! requires bool, got " + operand_type)
+            Code.append("cmp eax, 0")
+            Code.append("mov eax, 0")
+            Code.append("mov ecx, 1")
+            Code.append("cmove eax, ecx")
+            return "bool"
         else:
             raise Exception("[Semantic] Invalid unary operator " + str(self.value))
 
@@ -308,6 +420,56 @@ class BinOp(Node):
         else:
             raise Exception("[Semantic] Invalid binary operator " + str(self.value))
 
+    def generate(self, st):
+        # Filho da direita primeiro (fica na pilha), depois o da esquerda em EAX;
+        # ao final: EAX = esquerda, ECX = direita
+        right_type = self.children[1].generate(st)
+        Code.append("push eax")
+        left_type = self.children[0].generate(st)
+        Code.append("pop ecx")
+
+        type_error = Exception(
+            "[Semantic] Invalid operand types for " + self.value + ": " + left_type + " and " + right_type
+        )
+
+        if self.value in ("PLUS", "MINUS", "MULT", "DIV"):
+            if left_type != "int" or right_type != "int":
+                raise type_error
+
+            if self.value == "PLUS":
+                Code.append("add eax, ecx")
+            elif self.value == "MINUS":
+                Code.append("sub eax, ecx")
+            elif self.value == "MULT":
+                Code.append("imul ecx")
+            else:
+                # EDX:EAX / ECX, quociente em EAX
+                Code.append("cdq")
+                Code.append("idiv ecx")
+            return "int"
+
+        elif self.value in ("EQ", "GT", "LT"):
+            if left_type != right_type or (self.value != "EQ" and left_type != "int"):
+                raise type_error
+
+            conditional_move = {"EQ": "cmove", "GT": "cmovg", "LT": "cmovl"}[self.value]
+            Code.append("cmp eax, ecx")
+            Code.append("mov eax, 0")
+            Code.append("mov ecx, 1")
+            Code.append(conditional_move + " eax, ecx")
+            return "bool"
+
+        elif self.value in ("AND", "OR"):
+            if left_type != "bool" or right_type != "bool":
+                raise type_error
+
+            # Os dois lados ja sao 0 ou 1
+            Code.append(("and" if self.value == "AND" else "or") + " eax, ecx")
+            return "bool"
+
+        else:
+            raise Exception("[Semantic] Invalid binary operator " + str(self.value))
+
 
 class Identifier(Node):
     # Folha: value guarda o NOME da variavel; o valor fica na SymbolTable
@@ -317,6 +479,14 @@ class Identifier(Node):
     def evaluate(self, st):
         return st.get_value(self.value)
 
+    def generate(self, st):
+        variable = st.get_value(self.value)
+        if variable.type == "string":
+            raise Exception("[Semantic] Code generation for strings is not supported")
+
+        Code.append("mov eax, [ebp-" + str(variable.shift) + "] ; " + self.value)
+        return variable.type
+
 
 class Print(Node):
     def __init__(self, value, children):
@@ -324,6 +494,13 @@ class Print(Node):
 
     def evaluate(self, st):
         print(to_text(self.children[0].evaluate(st)))
+
+    def generate(self, st):
+        self.children[0].generate(st)
+        Code.append("push eax")
+        Code.append("push format_out")
+        Code.append("call printf")
+        Code.append("add esp, 8")
 
 
 class Read(Node):
@@ -338,6 +515,21 @@ class Read(Node):
         except ValueError:
             raise Exception("[Semantic] Scanln expected an integer, got '" + entry + "'")
 
+    def generate(self, st):
+        Code.append("push scan_int")
+        Code.append("push format_in")
+        Code.append("call scanf")
+        Code.append("add esp, 8")
+        Code.append("mov eax, dword [scan_int]")
+        return "int"
+
+
+def check_assignment_type(name, variable, value_type):
+    if value_type != variable.type:
+        raise Exception(
+            "[Semantic] Cannot assign " + value_type + " to variable '" + name + "' of type " + variable.type
+        )
+
 
 class VarDec(Node):
     # value = tipo da variavel, children[0] = Identifier, children[1] = expressao (opcional)
@@ -351,6 +543,17 @@ class VarDec(Node):
         if len(self.children) == 2:
             st.set_value(name, self.children[1].evaluate(st))
 
+    def generate(self, st):
+        name = self.children[0].value
+        st.create_variable(name, self.value)
+        variable = st.get_value(name)
+
+        Code.append("sub esp, 4 ; var " + name + " " + self.value + " [EBP-" + str(variable.shift) + "]")
+
+        if len(self.children) == 2:
+            check_assignment_type(name, variable, self.children[1].generate(st))
+            Code.append("mov [ebp-" + str(variable.shift) + "], eax ; " + name + " = ...")
+
 
 class Assignment(Node):
     # children[0] = Identifier (so o nome e usado), children[1] = expressao
@@ -360,6 +563,13 @@ class Assignment(Node):
     def evaluate(self, st):
         name = self.children[0].value
         st.set_value(name, self.children[1].evaluate(st))
+
+    def generate(self, st):
+        name = self.children[0].value
+        variable = st.get_value(name)
+
+        check_assignment_type(name, variable, self.children[1].generate(st))
+        Code.append("mov [ebp-" + str(variable.shift) + "], eax ; " + name + " = ...")
 
 
 class If(Node):
@@ -373,6 +583,20 @@ class If(Node):
         elif len(self.children) == 3:
             self.children[2].evaluate(st)
 
+    def generate(self, st):
+        generate_condition(self.children[0], st, "if")
+        Code.append("cmp eax, 0 ; se a condicao for falsa, vai para o else")
+        Code.append("je else_" + str(self.id))
+
+        self.children[1].generate(st)
+        Code.append("jmp exit_" + str(self.id))
+
+        Code.append("else_" + str(self.id) + ":")
+        if len(self.children) == 3:
+            self.children[2].generate(st)
+
+        Code.append("exit_" + str(self.id) + ":")
+
 
 class While(Node):
     # children[0] = condicao, children[1] = bloco
@@ -383,6 +607,18 @@ class While(Node):
         while evaluate_condition(self.children[0], st, "for"):
             self.children[1].evaluate(st)
 
+    def generate(self, st):
+        Code.append("loop_" + str(self.id) + ":")
+
+        generate_condition(self.children[0], st, "for")
+        Code.append("cmp eax, 0 ; se a condicao for falsa, sai")
+        Code.append("je exit_" + str(self.id))
+
+        self.children[1].generate(st)
+        Code.append("jmp loop_" + str(self.id))
+
+        Code.append("exit_" + str(self.id) + ":")
+
 
 class Block(Node):
     def __init__(self, value, children):
@@ -392,12 +628,19 @@ class Block(Node):
         for child in self.children:
             child.evaluate(st)
 
+    def generate(self, st):
+        for child in self.children:
+            child.generate(st)
+
 
 class NoOp(Node):
     def __init__(self, value=None, children=None):
         super().__init__(value, children)
 
     def evaluate(self, st):
+        pass
+
+    def generate(self, st):
         pass
 
 
@@ -657,8 +900,11 @@ def main():
 
     tree = Parser.run(code)
 
+    # Gera o assembly (e faz a checagem de tipos) em vez de interpretar o programa.
+    # O arquivo de saida tem o mesmo prefixo da entrada: teste.go -> teste.asm
     st = SymbolTable()
-    tree.evaluate(st)
+    tree.generate(st)
+    Code.dump(os.path.splitext(sys.argv[1])[0] + ".asm")
 
 
 if __name__ == "__main__":

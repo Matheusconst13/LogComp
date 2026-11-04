@@ -6,7 +6,7 @@ This repository is monitored by Compiler Tester for automatic compilation status
 
 ## Diagrama Sintático
 
-![Diagrama Sintático](https://compiler-tester.insper-comp.com.br/ds?version=v2.2)
+![Diagrama Sintático](https://compiler-tester.insper-comp.com.br/ds?version=v3.0)
 
 ## EBNF
 
@@ -66,35 +66,69 @@ As operações e os tipos aceitos em cada uma:
 As condições de `if` e `for` precisam ser `bool`. `Scanln()` devolve `int`.
 `Println` imprime booleanos como `true`/`false`. Somar `int` com `bool` é erro.
 
+## Geração de código (v3.0)
+
+O compilador não interpreta mais o programa: ele percorre a AST chamando
+`generate()` em cada nó e escreve um arquivo NASM x86 (32 bits, Linux) com o
+mesmo prefixo da entrada (`teste.go` gera `teste.asm`).
+
+- A classe `Code` acumula as instruções (`append`) e escreve o arquivo com
+  cabeçalho e rodapé (`dump`).
+- Cada nó recebe um id único (`Node.newId()`), usado nos rótulos de `if`
+  (`else_<id>`, `exit_<id>`) e `for` (`loop_<id>`, `exit_<id>`).
+- Cada variável guarda em `shift` o deslocamento na pilha: a primeira fica em
+  `[EBP-4]`, a segunda em `[EBP-8]` e assim por diante.
+- O resultado de toda expressão fica em `EAX` e `ECX` é o registrador de apoio.
+  Nas operações binárias o filho da direita é calculado primeiro e empilhado.
+- Booleanos são `1`/`0`, e o `Println` imprime com `%d`.
+- A checagem de tipos é feita durante a geração. Não é gerado código para
+  strings: usar uma string é erro.
+
 ## Como executar
 
 ```bash
-python3 main.py testes/teste.go < testes/teste.in
+python3 main.py testes/roteiro8.go
+```
+
+```bash
+nasm -f elf32 -o testes/roteiro8.o testes/roteiro8.asm
+```
+
+```bash
+gcc -m32 -no-pie -nostartfiles -o testes/roteiro8 testes/roteiro8.o -e _start
+```
+
+```bash
+./testes/roteiro8 < testes/roteiro8.in
+```
+
+O script `testes/run.sh` faz os quatro passos de uma vez:
+
+```bash
+testes/run.sh testes/roteiro8.go testes/roteiro8.in
 ```
 
 ## Testes
 
-`testes/roteiro7.go` é o programa de testes do Roteiro 7. Ele declara e opera
-variáveis de todos os tipos (com e sem valor inicial), concatena strings,
-concatena string com `int` e `bool`, compara strings e booleanos, roda o fatorial do Roteiro 6 e usa strings para
-controlar um `if` e um `for`. Entrada em `testes/roteiro7.in` e saída esperada
-em `testes/roteiro7.out`:
+`testes/roteiro8.go` é o programa de testes do Roteiro 8. Ele passa por todos os
+nós que geram código: declarações, atribuições, operadores unários e binários
+(incluindo divisão com negativos), `if` com e sem `else`, `if` dentro de `for`,
+`Println` e `Scanln`. Entrada em `testes/roteiro8.in` e saída esperada em
+`testes/roteiro8.out`:
 
 ```bash
-python3 main.py testes/roteiro7.go < testes/roteiro7.in | diff - testes/roteiro7.out
+testes/run.sh testes/roteiro8.go testes/roteiro8.in | diff - testes/roteiro8.out
 ```
 
-`testes/erros/` tem um programa por erro de tipo (soma de `int` com `bool`,
-`bool` em operação aritmética, atribuição e declaração com tipo errado,
-variável não declarada ou redeclarada, `&&` com `int`, `!` e `-` em string,
-`==` entre tipos diferentes, `if`/`for` com condição que não é `bool` e string
-sem fechar). Todos devem terminar com erro:
+`testes/teste.go` (Roteiro 6) e `testes/roteiro6.go` (fatorial) também
+compilam; na saída de `teste.go` os booleanos agora aparecem como `1`/`0`.
+
+`testes/erros/` tem um programa por erro de tipo. Todos devem terminar com erro
+na compilação, sem gerar `.asm`:
 
 ```bash
 for f in testes/erros/*.go; do python3 main.py "$f" > /dev/null 2>&1 && echo "FALHOU: $f"; done
 ```
 
-`testes/teste.go` (Roteiro 6) e `testes/roteiro6.go` (fatorial do enunciado)
-continuam funcionando; só ganharam as declarações `var` que a v2.2 exige.
-Entradas de `teste.go` em `testes/teste.in` e saída esperada em
-`testes/teste.out`.
+`testes/roteiro7.go` é o teste da v2.2. Ele usa strings, então só funciona até
+a v2.2, quando o compilador ainda interpretava o programa.
