@@ -1,1 +1,3 @@
+func main() {
 Println(!"abc")
+}

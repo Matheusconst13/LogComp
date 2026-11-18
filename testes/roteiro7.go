@@ -1,3 +1,4 @@
+func main() {
 // Roteiro 7 - programa de testes (v2.2: tipos e strings)
 // Cobre: variaveis de todos os tipos, programa antigo ainda funcionando
 // e if/for controlados por strings. Os erros de tipo ficam em testes/erros/
@@ -60,3 +61,4 @@ Println(passos)
 
 // --- Comentario dentro de string nao e removido ---
 Println("http://insper.edu.br")
+}

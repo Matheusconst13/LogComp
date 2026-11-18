@@ -1,6 +1,0 @@
-# Arquivos gerados pelo compilador e pelo nasm/gcc
-*.asm
-*.o
-testes/teste
-testes/roteiro6
-testes/roteiro8

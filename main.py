@@ -1,4 +1,3 @@
-import os
 import re
 import sys
 
@@ -12,36 +11,43 @@ class PrePro:
 
 
 class Variable:
-    # shift = deslocamento da variavel na pilha em relacao ao EBP ([EBP-shift])
-    def __init__(self, value, type, shift=0):
+    # is_function = True quando a "variavel" guarda uma funcao (value = no FuncDec, type = tipo de retorno)
+    def __init__(self, value, type, is_function=False):
         self.value = value
         self.type = type
-        self.shift = shift
+        self.is_function = is_function
 
 
 class SymbolTable:
     # Valor inicial de uma variavel declarada sem atribuicao (zero value do Go)
     DEFAULT_VALUES = {"int": 0, "string": "", "bool": False}
 
-    def __init__(self):
+    # parent = tabela do escopo de fora (lista ligada reversa: o escopo global tem parent None)
+    def __init__(self, parent=None):
         self.table = {}
+        self.parent = parent
 
-    def create_variable(self, name, type):
+    def create_variable(self, name, type, is_function=False):
+        # So olha o escopo atual: declarar um nome que ja existe num escopo de fora e permitido (sombreamento)
         if name in self.table:
-            raise Exception("[Semantic] Variable '" + name + "' already declared")
-
-        # Cada variavel ocupa 4 bytes: a primeira fica em [EBP-4], a segunda em [EBP-8], ...
-        shift = 4 * (len(self.table) + 1)
-        self.table[name] = Variable(SymbolTable.DEFAULT_VALUES[type], type, shift)
+            raise Exception("[Semantic] Identifier '" + name + "' already declared")
+        self.table[name] = Variable(SymbolTable.DEFAULT_VALUES.get(type), type, is_function)
 
     def get_value(self, name):
-        if name not in self.table:
-            raise Exception("[Semantic] Undefined variable '" + name + "'")
-        return self.table[name]
+        if name in self.table:
+            return self.table[name]
+        if self.parent is not None:
+            return self.parent.get_value(name)
+        raise Exception("[Semantic] Undefined identifier '" + name + "'")
 
     def set_value(self, name, variable):
         if name not in self.table:
+            if self.parent is not None:
+                return self.parent.set_value(name, variable)
             raise Exception("[Semantic] Variable '" + name + "' not declared")
+
+        if self.table[name].is_function:
+            raise Exception("[Semantic] Cannot assign to function '" + name + "'")
 
         declared_type = self.table[name].type
         if variable.type != declared_type:
@@ -49,7 +55,7 @@ class SymbolTable:
                 "[Semantic] Cannot assign " + variable.type + " to variable '" + name + "' of type " + declared_type
             )
 
-        self.table[name] = Variable(variable.value, declared_type, self.table[name].shift)
+        self.table[name] = Variable(variable.value, declared_type)
 
 
 class Token:
@@ -66,6 +72,8 @@ class Lexer:
         "else": "ELSE",
         "for": "WHILE",
         "var": "VAR",
+        "func": "FUNC",
+        "return": "RETURN",
     }
 
     TYPES = ("int", "string", "bool")
@@ -97,6 +105,9 @@ class Lexer:
             self.position += 1
         elif current == "/":
             self.next = Token("DIV", "/")
+            self.position += 1
+        elif current == ",":
+            self.next = Token("COMMA", ",")
             self.position += 1
         elif current == "(":
             self.next = Token("OPEN_PAR", "(")
@@ -184,82 +195,15 @@ class Lexer:
             raise Exception("[Lexer] Invalid Symbol '" + current + "'")
 
 
-class Code:
-    # Instrucoes assembly geradas pelos nos, na ordem em que foram adicionadas
-    instructions = []
-
-    @staticmethod
-    def append(code):
-        Code.instructions.append(code)
-
-    @staticmethod
-    def dump(filename):
-        with open(filename, "w") as file:
-            # Cabecalho: tudo ate o inicio do codigo gerado (versao Linux)
-            file.write(
-                "section .data\n"
-                '  format_out: db "%d", 10, 0 ; format do printf\n'
-                '  format_in: db "%d", 0 ; format do scanf\n'
-                "  scan_int: dd 0; 32-bits integer\n"
-                "\n"
-                "section .text\n"
-                "  extern printf\n"
-                "  extern scanf\n"
-                "  extern fflush\n"
-                "  global _start ; inicio do programa\n"
-                "\n"
-                "_start:\n"
-                "  push ebp ; guarda o EBP\n"
-                "  mov ebp, esp ; zera a pilha\n"
-                "\n"
-                "  ; aqui comeca o codigo gerado:\n"
-                "\n"
-            )
-
-            file.write("\n".join("  " + instruction for instruction in Code.instructions))
-
-            # Rodape: restaura a pilha e chama a interrupcao de saida
-            file.write(
-                "\n"
-                "\n"
-                "  ; aqui termina o codigo gerado\n"
-                "\n"
-                "  ; descarrega o buffer do printf (a saida via int 0x80 nao faz isso)\n"
-                "  push 0\n"
-                "  call fflush\n"
-                "  add esp, 4\n"
-                "\n"
-                "  mov esp, ebp ; reestabelece a pilha\n"
-                "  pop ebp\n"
-                "\n"
-                "  ; chamada da interrupcao de saida\n"
-                "  mov eax, 1\n"
-                "  xor ebx, ebx\n"
-                "  int 0x80\n"
-            )
-
-
 class Node:
-    # Contador global: cada no recebe um id unico, usado nos labels do assembly
-    id = 0
-
     def __init__(self, value, children=None):
         self.value = value
         if children is None:
             children = []
         self.children = children
-        self.id = Node.new_id()
-
-    @staticmethod
-    def new_id():
-        Node.id += 1
-        return Node.id
 
     def evaluate(self, st):
         raise Exception("[Semantic] evaluate() not implemented for this node")
-
-    def generate(self, st):
-        raise Exception("[Semantic] generate() not implemented for this node")
 
 
 class IntVal(Node):
@@ -269,10 +213,6 @@ class IntVal(Node):
     def evaluate(self, st):
         return Variable(self.value, "int")
 
-    def generate(self, st):
-        Code.append("mov eax, " + str(self.value))
-        return "int"
-
 
 class BoolVal(Node):
     def __init__(self, value, children=None):
@@ -281,11 +221,6 @@ class BoolVal(Node):
     def evaluate(self, st):
         return Variable(self.value, "bool")
 
-    def generate(self, st):
-        # true = 1, false = 0
-        Code.append("mov eax, " + ("1" if self.value else "0"))
-        return "bool"
-
 
 class StringVal(Node):
     def __init__(self, value, children=None):
@@ -293,9 +228,6 @@ class StringVal(Node):
 
     def evaluate(self, st):
         return Variable(self.value, "string")
-
-    def generate(self, st):
-        raise Exception("[Semantic] Code generation for strings is not supported")
 
 
 def to_text(variable):
@@ -310,13 +242,6 @@ def evaluate_condition(node, st, statement):
     if condition.type != "bool":
         raise Exception("[Semantic] " + statement + " condition must be bool, got " + condition.type)
     return condition.value
-
-
-def generate_condition(node, st, statement):
-    # Gera a condicao (resultado 0/1 em EAX) e confere que ela e bool
-    condition_type = node.generate(st)
-    if condition_type != "bool":
-        raise Exception("[Semantic] " + statement + " condition must be bool, got " + condition_type)
 
 
 class UnOp(Node):
@@ -337,26 +262,6 @@ class UnOp(Node):
         else:
             raise Exception("[Semantic] Invalid unary operator " + str(self.value))
 
-    def generate(self, st):
-        operand_type = self.children[0].generate(st)
-
-        if self.value in ("PLUS", "MINUS"):
-            if operand_type != "int":
-                raise Exception("[Semantic] Unary " + self.value + " requires int, got " + operand_type)
-            if self.value == "MINUS":
-                Code.append("neg eax")
-            return "int"
-        elif self.value == "NOT":
-            if operand_type != "bool":
-                raise Exception("[Semantic] Operator ! requires bool, got " + operand_type)
-            Code.append("cmp eax, 0")
-            Code.append("mov eax, 0")
-            Code.append("mov ecx, 1")
-            Code.append("cmove eax, ecx")
-            return "bool"
-        else:
-            raise Exception("[Semantic] Invalid unary operator " + str(self.value))
-
 
 class BinOp(Node):
     def __init__(self, value, children):
@@ -369,6 +274,10 @@ class BinOp(Node):
         type_error = Exception(
             "[Semantic] Invalid operand types for " + self.value + ": " + left.type + " and " + right.type
         )
+
+        # Chamada de funcao sem tipo de retorno nao produz valor para operar
+        if left.type == "void" or right.type == "void":
+            raise type_error
 
         if self.value == "PLUS":
             # Se algum lado e string, "+" concatena (o outro lado vira texto: 1 -> "1", true -> "true").
@@ -420,56 +329,6 @@ class BinOp(Node):
         else:
             raise Exception("[Semantic] Invalid binary operator " + str(self.value))
 
-    def generate(self, st):
-        # Filho da direita primeiro (fica na pilha), depois o da esquerda em EAX;
-        # ao final: EAX = esquerda, ECX = direita
-        right_type = self.children[1].generate(st)
-        Code.append("push eax")
-        left_type = self.children[0].generate(st)
-        Code.append("pop ecx")
-
-        type_error = Exception(
-            "[Semantic] Invalid operand types for " + self.value + ": " + left_type + " and " + right_type
-        )
-
-        if self.value in ("PLUS", "MINUS", "MULT", "DIV"):
-            if left_type != "int" or right_type != "int":
-                raise type_error
-
-            if self.value == "PLUS":
-                Code.append("add eax, ecx")
-            elif self.value == "MINUS":
-                Code.append("sub eax, ecx")
-            elif self.value == "MULT":
-                Code.append("imul ecx")
-            else:
-                # EDX:EAX / ECX, quociente em EAX
-                Code.append("cdq")
-                Code.append("idiv ecx")
-            return "int"
-
-        elif self.value in ("EQ", "GT", "LT"):
-            if left_type != right_type or (self.value != "EQ" and left_type != "int"):
-                raise type_error
-
-            conditional_move = {"EQ": "cmove", "GT": "cmovg", "LT": "cmovl"}[self.value]
-            Code.append("cmp eax, ecx")
-            Code.append("mov eax, 0")
-            Code.append("mov ecx, 1")
-            Code.append(conditional_move + " eax, ecx")
-            return "bool"
-
-        elif self.value in ("AND", "OR"):
-            if left_type != "bool" or right_type != "bool":
-                raise type_error
-
-            # Os dois lados ja sao 0 ou 1
-            Code.append(("and" if self.value == "AND" else "or") + " eax, ecx")
-            return "bool"
-
-        else:
-            raise Exception("[Semantic] Invalid binary operator " + str(self.value))
-
 
 class Identifier(Node):
     # Folha: value guarda o NOME da variavel; o valor fica na SymbolTable
@@ -477,15 +336,10 @@ class Identifier(Node):
         super().__init__(value, children)
 
     def evaluate(self, st):
-        return st.get_value(self.value)
-
-    def generate(self, st):
         variable = st.get_value(self.value)
-        if variable.type == "string":
-            raise Exception("[Semantic] Code generation for strings is not supported")
-
-        Code.append("mov eax, [ebp-" + str(variable.shift) + "] ; " + self.value)
-        return variable.type
+        if variable.is_function:
+            raise Exception("[Semantic] Function '" + self.value + "' used as a value (missing '()')")
+        return variable
 
 
 class Print(Node):
@@ -493,14 +347,10 @@ class Print(Node):
         super().__init__(value, children)
 
     def evaluate(self, st):
-        print(to_text(self.children[0].evaluate(st)))
-
-    def generate(self, st):
-        self.children[0].generate(st)
-        Code.append("push eax")
-        Code.append("push format_out")
-        Code.append("call printf")
-        Code.append("add esp, 8")
+        value = self.children[0].evaluate(st)
+        if value.type == "void":
+            raise Exception("[Semantic] Cannot print the result of a function without return type")
+        print(to_text(value))
 
 
 class Read(Node):
@@ -515,21 +365,6 @@ class Read(Node):
         except ValueError:
             raise Exception("[Semantic] Scanln expected an integer, got '" + entry + "'")
 
-    def generate(self, st):
-        Code.append("push scan_int")
-        Code.append("push format_in")
-        Code.append("call scanf")
-        Code.append("add esp, 8")
-        Code.append("mov eax, dword [scan_int]")
-        return "int"
-
-
-def check_assignment_type(name, variable, value_type):
-    if value_type != variable.type:
-        raise Exception(
-            "[Semantic] Cannot assign " + value_type + " to variable '" + name + "' of type " + variable.type
-        )
-
 
 class VarDec(Node):
     # value = tipo da variavel, children[0] = Identifier, children[1] = expressao (opcional)
@@ -538,21 +373,10 @@ class VarDec(Node):
 
     def evaluate(self, st):
         name = self.children[0].value
-        st.create_variable(name, self.value)
+        st.create_variable(name, self.value, False)
 
         if len(self.children) == 2:
             st.set_value(name, self.children[1].evaluate(st))
-
-    def generate(self, st):
-        name = self.children[0].value
-        st.create_variable(name, self.value)
-        variable = st.get_value(name)
-
-        Code.append("sub esp, 4 ; var " + name + " " + self.value + " [EBP-" + str(variable.shift) + "]")
-
-        if len(self.children) == 2:
-            check_assignment_type(name, variable, self.children[1].generate(st))
-            Code.append("mov [ebp-" + str(variable.shift) + "], eax ; " + name + " = ...")
 
 
 class Assignment(Node):
@@ -564,13 +388,6 @@ class Assignment(Node):
         name = self.children[0].value
         st.set_value(name, self.children[1].evaluate(st))
 
-    def generate(self, st):
-        name = self.children[0].value
-        variable = st.get_value(name)
-
-        check_assignment_type(name, variable, self.children[1].generate(st))
-        Code.append("mov [ebp-" + str(variable.shift) + "], eax ; " + name + " = ...")
-
 
 class If(Node):
     # children[0] = condicao, children[1] = bloco then, children[2] = bloco else (opcional)
@@ -578,24 +395,11 @@ class If(Node):
         super().__init__(value, children)
 
     def evaluate(self, st):
+        # Cada bloco tem seu proprio escopo; se ele executar um return, o valor sobe
         if evaluate_condition(self.children[0], st, "if"):
-            self.children[1].evaluate(st)
+            return self.children[1].evaluate(SymbolTable(st))
         elif len(self.children) == 3:
-            self.children[2].evaluate(st)
-
-    def generate(self, st):
-        generate_condition(self.children[0], st, "if")
-        Code.append("cmp eax, 0 ; se a condicao for falsa, vai para o else")
-        Code.append("je else_" + str(self.id))
-
-        self.children[1].generate(st)
-        Code.append("jmp exit_" + str(self.id))
-
-        Code.append("else_" + str(self.id) + ":")
-        if len(self.children) == 3:
-            self.children[2].generate(st)
-
-        Code.append("exit_" + str(self.id) + ":")
+            return self.children[2].evaluate(SymbolTable(st))
 
 
 class While(Node):
@@ -604,20 +408,11 @@ class While(Node):
         super().__init__(value, children)
 
     def evaluate(self, st):
+        # Escopo novo a cada iteracao (um "var" dentro do laco nao e redeclarado); um return interrompe o laco
         while evaluate_condition(self.children[0], st, "for"):
-            self.children[1].evaluate(st)
-
-    def generate(self, st):
-        Code.append("loop_" + str(self.id) + ":")
-
-        generate_condition(self.children[0], st, "for")
-        Code.append("cmp eax, 0 ; se a condicao for falsa, sai")
-        Code.append("je exit_" + str(self.id))
-
-        self.children[1].generate(st)
-        Code.append("jmp loop_" + str(self.id))
-
-        Code.append("exit_" + str(self.id) + ":")
+            result = self.children[1].evaluate(SymbolTable(st))
+            if result is not None:
+                return result
 
 
 class Block(Node):
@@ -626,11 +421,87 @@ class Block(Node):
 
     def evaluate(self, st):
         for child in self.children:
-            child.evaluate(st)
+            if isinstance(child, Return):
+                return child.evaluate(st)
 
-    def generate(self, st):
-        for child in self.children:
-            child.generate(st)
+            # Bloco dentro de bloco ganha uma tabela encadeada (escopo novo)
+            if isinstance(child, Block):
+                result = child.evaluate(SymbolTable(st))
+            else:
+                result = child.evaluate(st)
+
+            # Um return executado dentro de um if/for/bloco interno encerra este bloco tambem.
+            # O valor de uma chamada de funcao usada como instrucao e descartado
+            if result is not None and not isinstance(child, FuncCall):
+                return result
+
+
+class Return(Node):
+    # children[0] = expressao retornada
+    def __init__(self, value, children):
+        super().__init__(value, children)
+
+    def evaluate(self, st):
+        return self.children[0].evaluate(st)
+
+
+class FuncDec(Node):
+    # value = tipo de retorno ("void" se nao declarar), children[0] = Identifier com o nome,
+    # children[1:-1] = VarDec dos argumentos, children[-1] = Block do corpo
+    def __init__(self, value, children):
+        super().__init__(value, children)
+
+    def evaluate(self, st):
+        # A "variavel" da funcao guarda o proprio no como valor
+        name = self.children[0].value
+        st.create_variable(name, self.value, True)
+        st.get_value(name).value = self
+
+
+class FuncCall(Node):
+    # value = nome da funcao, children = expressoes passadas como argumento
+    def __init__(self, value, children):
+        super().__init__(value, children)
+
+    def evaluate(self, st):
+        function = st.get_value(self.value)
+        if not function.is_function:
+            raise Exception("[Semantic] '" + self.value + "' is not a function")
+
+        declaration = function.value
+        arguments = declaration.children[1:-1]
+        if len(arguments) != len(self.children):
+            raise Exception(
+                "[Semantic] Function '" + self.value + "' expects " + str(len(arguments))
+                + " argument(s), got " + str(len(self.children))
+            )
+
+        # O escopo da funcao e encadeado no escopo global (onde as funcoes sao declaradas),
+        # nao no escopo de quem chamou
+        global_st = st
+        while global_st.parent is not None:
+            global_st = global_st.parent
+        function_st = SymbolTable(global_st)
+
+        # Declara cada argumento e atribui o valor passado (avaliado no escopo de quem chamou)
+        for argument, expression in zip(arguments, self.children):
+            argument.evaluate(function_st)
+            function_st.set_value(argument.children[0].value, expression.evaluate(st))
+
+        result = declaration.children[-1].evaluate(function_st)
+
+        if declaration.value == "void":
+            if result is not None:
+                raise Exception("[Semantic] Function '" + self.value + "' has no return type and cannot return a value")
+            return Variable(None, "void")
+
+        if result is None:
+            raise Exception("[Semantic] Function '" + self.value + "' must return a value of type " + declaration.value)
+        if result.type != declaration.value:
+            raise Exception(
+                "[Semantic] Function '" + self.value + "' must return " + declaration.value + ", got " + result.type
+            )
+        return Variable(result.value, result.type)
 
 
 class NoOp(Node):
@@ -640,8 +511,23 @@ class NoOp(Node):
     def evaluate(self, st):
         pass
 
-    def generate(self, st):
-        pass
+
+def parse_function_call(name):
+    # Chamado com o "(" como proximo token: consome "(", argumentos separados por "," e ")"
+    Parser.lexer.select_next()
+
+    arguments = []
+    if Parser.lexer.next.type != "CLOSE_PAR":
+        arguments.append(Parser.parse_bool_expression())
+        while Parser.lexer.next.type == "COMMA":
+            Parser.lexer.select_next()
+            arguments.append(Parser.parse_bool_expression())
+
+    if Parser.lexer.next.type != "CLOSE_PAR":
+        raise Exception("[Parser] Expected ')' after arguments of '" + name + "', got " + Parser.lexer.next.type)
+    Parser.lexer.select_next()
+
+    return FuncCall(name, arguments)
 
 
 class Parser:
@@ -649,10 +535,71 @@ class Parser:
 
     @staticmethod
     def parse_program():
+        # Fora das funcoes so podem existir declaracoes de funcoes e de variaveis globais
         children = []
         while Parser.lexer.next.type != "EOF":
-            children.append(Parser.parse_statement())
+            if Parser.lexer.next.type == "END":
+                Parser.lexer.select_next()
+
+            elif Parser.lexer.next.type == "VAR":
+                # parse_statement ja consome o "\n" do final
+                children.append(Parser.parse_statement())
+
+            elif Parser.lexer.next.type == "FUNC":
+                children.append(Parser.parse_func_declaration())
+
+                if Parser.lexer.next.type != "END":
+                    raise Exception("[Parser] Expected end of line after function, got " + Parser.lexer.next.type)
+                Parser.lexer.select_next()
+
+            else:
+                raise Exception("[Parser] Expected function or variable declaration, got " + Parser.lexer.next.type)
+
         return Block("BLOCK", children)
+
+    @staticmethod
+    def parse_func_declaration():
+        # Consome "func"
+        Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "IDEN":
+            raise Exception("[Parser] Expected function name after func, got " + Parser.lexer.next.type)
+        children = [Identifier(Parser.lexer.next.value)]
+        Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "OPEN_PAR":
+            raise Exception("[Parser] Expected '(' after function name, got " + Parser.lexer.next.type)
+        Parser.lexer.select_next()
+
+        # Argumentos: "nome tipo" separados por ","; cada um vira um VarDec sem valor
+        while Parser.lexer.next.type != "CLOSE_PAR":
+            if len(children) > 1:
+                if Parser.lexer.next.type != "COMMA":
+                    raise Exception("[Parser] Expected ',' or ')' in arguments, got " + Parser.lexer.next.type)
+                Parser.lexer.select_next()
+
+            if Parser.lexer.next.type != "IDEN":
+                raise Exception("[Parser] Expected argument name, got " + Parser.lexer.next.type)
+            argument = Identifier(Parser.lexer.next.value)
+            Parser.lexer.select_next()
+
+            if Parser.lexer.next.type != "TYPE":
+                raise Exception("[Parser] Expected type after argument name, got " + Parser.lexer.next.type)
+            children.append(VarDec(Parser.lexer.next.value, [argument]))
+            Parser.lexer.select_next()
+
+        # Consome ")"
+        Parser.lexer.select_next()
+
+        # Tipo de retorno e opcional: sem ele a funcao nao pode dar return
+        return_type = "void"
+        if Parser.lexer.next.type == "TYPE":
+            return_type = Parser.lexer.next.value
+            Parser.lexer.select_next()
+
+        children.append(Parser.parse_block())
+
+        return FuncDec(return_type, children)
 
     @staticmethod
     def parse_block():
@@ -685,11 +632,18 @@ class Parser:
             identifier = Identifier(token.value)
             Parser.lexer.select_next()
 
-            if Parser.lexer.next.type != "ASSIGN":
-                raise Exception("[Parser] Expected '=' after identifier, got " + Parser.lexer.next.type)
-            Parser.lexer.select_next()
+            # "nome(" e chamada de funcao; "nome =" e atribuicao
+            if Parser.lexer.next.type == "OPEN_PAR":
+                node = parse_function_call(token.value)
+            elif Parser.lexer.next.type == "ASSIGN":
+                Parser.lexer.select_next()
+                node = Assignment("ASSIGN", [identifier, Parser.parse_bool_expression()])
+            else:
+                raise Exception("[Parser] Expected '=' or '(' after identifier, got " + Parser.lexer.next.type)
 
-            node = Assignment("ASSIGN", [identifier, Parser.parse_bool_expression()])
+        elif token.type == "RETURN":
+            Parser.lexer.select_next()
+            node = Return("RETURN", [Parser.parse_bool_expression()])
 
         elif token.type == "VAR":
             Parser.lexer.select_next()
@@ -813,9 +767,12 @@ class Parser:
             return node
 
         if Parser.lexer.next.type == "IDEN":
-            node = Identifier(Parser.lexer.next.value)
+            name = Parser.lexer.next.value
             Parser.lexer.select_next()
-            return node
+
+            if Parser.lexer.next.type == "OPEN_PAR":
+                return parse_function_call(name)
+            return Identifier(name)
 
         raise Exception("[Parser] Unexpected token " + Parser.lexer.next.type)
 
@@ -886,6 +843,9 @@ class Parser:
         if Parser.lexer.next.type != "EOF":
             raise Exception("[Parser] Unexpected token " + Parser.lexer.next.type)
 
+        # Depois de declarar globais e funcoes, o programa comeca chamando main() (obrigatoria)
+        tree.children.append(FuncCall("main", []))
+
         return tree
 
 
@@ -900,11 +860,8 @@ def main():
 
     tree = Parser.run(code)
 
-    # Gera o assembly (e faz a checagem de tipos) em vez de interpretar o programa.
-    # O arquivo de saida tem o mesmo prefixo da entrada: teste.go -> teste.asm
     st = SymbolTable()
-    tree.generate(st)
-    Code.dump(os.path.splitext(sys.argv[1])[0] + ".asm")
+    tree.evaluate(st)
 
 
 if __name__ == "__main__":

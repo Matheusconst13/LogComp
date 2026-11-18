@@ -1,3 +1,4 @@
+func main() {
 // Roteiro 6 - programa de testes
 // Cobre: leitura do terminal, condicionais e lacos com &&, || e !
 // (a partir da v2.2 as variaveis precisam ser declaradas com var)
@@ -75,3 +76,4 @@ var t bool = a < b && b > 0
 Println(t)
 Println(!t)
 Println(a == a || a > b)
+}

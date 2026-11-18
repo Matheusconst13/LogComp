@@ -6,20 +6,21 @@ This repository is monitored by Compiler Tester for automatic compilation status
 
 ## Diagrama Sintático
 
-![Diagrama Sintático](https://compiler-tester.insper-comp.com.br/ds?version=v3.0)
+![Diagrama Sintático](https://compiler-tester.insper-comp.com.br/ds?version=v2.3)
 
 ## EBNF
 
 ```ebnf
-PROGRAM        = { STATEMENT } ;
+PROGRAM        = { ( "var", IDENTIFIER, TYPE, ( ε | "=", BOOLEXPRESSION ) | FUNCDEC | ε ), "\n" } ;
+FUNCDEC        = "func", IDENTIFIER, "(", ( ε | IDENTIFIER, TYPE, { ",", IDENTIFIER, TYPE } ), ")", ( ε | TYPE ), BLOCK ;
 BLOCK          = "{", "\n", { STATEMENT }, "}" ;
-STATEMENT      = ( "var", IDENTIFIER, TYPE, ( ε | "=", BOOLEXPRESSION ) | ( "Println", "(", BOOLEXPRESSION, ")" ) | ( "for", BOOLEXPRESSION, BLOCK ) | ( "if", BOOLEXPRESSION, BLOCK, ( ε | "else", BLOCK ) | ) | BLOCK | IDENTIFIER, "=", BOOLEXPRESSION | ε ), "\n" ;
+STATEMENT      = ( "var", IDENTIFIER, TYPE, ( ε | "=", BOOLEXPRESSION ) | ( "Println", "(", BOOLEXPRESSION, ")" ) | ( "for", BOOLEXPRESSION, BLOCK ) | ( "if", BOOLEXPRESSION, BLOCK, ( ε | "else", BLOCK ) | ) | ( "return", BOOLEXPRESSION ) | BLOCK | IDENTIFIER, ( "=", BOOLEXPRESSION | "(", ( ε | BOOLEXPRESSION, { ",", BOOLEXPRESSION } ), ")" ) | ε ), "\n" ;
 BOOLEXPRESSION = BOOLTERM, { "||", BOOLTERM } ;
 BOOLTERM       = RELEXPRESSION, { "&&", RELEXPRESSION } ;
 RELEXPRESSION  = EXPRESSION, { ("==" | ">" | "<"), EXPRESSION } ;
 EXPRESSION     = TERM, { ("+" | "-"), TERM } ;
 TERM           = FACTOR, { ("*" | "/"), FACTOR } ;
-FACTOR         = NUMBER | BOOLEAN | STRING | IDENTIFIER | ("!" | "+" | "-"), FACTOR | "(", BOOLEXPRESSION, ")" | "Scanln", "(", ")" ;
+FACTOR         = NUMBER | BOOLEAN | STRING | IDENTIFIER, ( ε | "(", ( ε | BOOLEXPRESSION, { ",", BOOLEXPRESSION } ), ")" ) | ("!" | "+" | "-"), FACTOR | "(", BOOLEXPRESSION, ")" | "Scanln", "(", ")" ;
 TYPE           = "string" | "int" | "bool" ;
 BOOLEAN        = "true" | "false" ;
 STRING         = '"', { "..." }, '"' ;
@@ -37,8 +38,9 @@ DIGIT          = "0" | "1" | ... | "9" ;
 | Relacionais | `==` `EQ`, `>` `GT`, `<` `LT` |
 | Booleanos | `&&` `AND`, `\|\|` `OR`, `!` `NOT` |
 | Atribuição | `=` `ASSIGN` |
+| Separador | `,` `COMMA` |
 | Agrupamento | `(` `OPEN_PAR`, `)` `CLOSE_PAR`, `{` `OPEN_BRA`, `}` `CLOSE_BRA` |
-| Palavras reservadas | `if` `IF`, `else` `ELSE`, `for` `WHILE`, `Println` `PRINT`, `Scanln` `READ`, `var` `VAR` |
+| Palavras reservadas | `if` `IF`, `else` `ELSE`, `for` `WHILE`, `Println` `PRINT`, `Scanln` `READ`, `var` `VAR`, `func` `FUNC`, `return` `RETURN` |
 | Tipos | `int`, `string`, `bool` `TYPE` |
 | Literais | `INT`, `true`/`false` `BOOL`, `"..."` `STR` |
 | Outros | `IDEN`, `\n` `END`, `EOF` |
@@ -66,69 +68,83 @@ As operações e os tipos aceitos em cada uma:
 As condições de `if` e `for` precisam ser `bool`. `Scanln()` devolve `int`.
 `Println` imprime booleanos como `true`/`false`. Somar `int` com `bool` é erro.
 
-## Geração de código (v3.0)
+## Funções e escopo
 
-O compilador não interpreta mais o programa: ele percorre a AST chamando
-`generate()` em cada nó e escreve um arquivo NASM x86 (32 bits, Linux) com o
-mesmo prefixo da entrada (`teste.go` gera `teste.asm`).
+Fora das funções só podem existir declarações de variáveis globais (`var`) e de
+funções (`func`). A função `main` é obrigatória: depois de declarar tudo, o
+programa começa chamando `main()`.
 
-- A classe `Code` acumula as instruções (`append`) e escreve o arquivo com
-  cabeçalho e rodapé (`dump`).
-- Cada nó recebe um id único (`Node.new_id()`), usado nos rótulos de `if`
-  (`else_<id>`, `exit_<id>`) e `for` (`loop_<id>`, `exit_<id>`).
-- Cada variável guarda em `shift` o deslocamento na pilha: a primeira fica em
-  `[EBP-4]`, a segunda em `[EBP-8]` e assim por diante.
-- O resultado de toda expressão fica em `EAX` e `ECX` é o registrador de apoio.
-  Nas operações binárias o filho da direita é calculado primeiro e empilhado.
-- Booleanos são `1`/`0`, e o `Println` imprime com `%d`.
-- A checagem de tipos é feita durante a geração. Não é gerado código para
-  strings: usar uma string é erro.
+```go
+func soma(x int, y int) int {
+  return x + y
+}
+```
+
+- O tipo de retorno é opcional. Uma função sem tipo de retorno não pode dar
+  `return`, e uma função com tipo precisa retornar um valor desse tipo.
+- Não é possível declarar uma função dentro de outra.
+- Uma chamada precisa passar a quantidade certa de argumentos, cada um com o
+  tipo do parâmetro correspondente.
+- Cada bloco (`{ }`, corpo de `if` e de `for`) tem seu próprio escopo. Uma
+  variável declarada dentro dele deixa de existir quando o bloco termina, e uma
+  variável de mesmo nome em um escopo interno esconde a de fora.
+- O corpo de uma função enxerga seus parâmetros, suas variáveis locais e as
+  globais, mas não as variáveis de quem a chamou. Isso permite recursão.
+
+A `SymbolTable` é uma lista ligada reversa: cada tabela aponta para a tabela do
+escopo de fora (`parent`), e a busca por um nome sobe até o escopo global.
 
 ## Como executar
 
 ```bash
-python3 main.py testes/roteiro8.go
-```
-
-```bash
-nasm -f elf32 -o testes/roteiro8.o testes/roteiro8.asm
-```
-
-```bash
-gcc -m32 -no-pie -nostartfiles -o testes/roteiro8 testes/roteiro8.o -e _start
-```
-
-```bash
-./testes/roteiro8 < testes/roteiro8.in
-```
-
-O script `testes/run.sh` faz os quatro passos de uma vez:
-
-```bash
-testes/run.sh testes/roteiro8.go testes/roteiro8.in
+python3 main.py testes/roteiro9.go < testes/roteiro9.in
 ```
 
 ## Testes
 
-`testes/roteiro8.go` é o programa de testes do Roteiro 8. Ele passa por todos os
-nós que geram código: declarações, atribuições, operadores unários e binários
-(incluindo divisão com negativos), `if` com e sem `else`, `if` dentro de `for`,
-`Println` e `Scanln`. Entrada em `testes/roteiro8.in` e saída esperada em
-`testes/roteiro8.out`:
+`testes/roteiro9.go` é o programa de testes do Roteiro 9. Ele roda o exemplo do
+enunciado (globais, locais e blocos aninhados) e também cobre:
+
+- funções recursivas (`fatorial` e `fibonacci`);
+- funções que retornam `bool` e `string`;
+- `return` de dentro de um `for`;
+- uma função sem retorno que altera uma global;
+- uma função que chama outra;
+- um argumento lido com `Scanln`;
+- sombreamento de variável dentro de um `if`;
+- `var` dentro de um `for`.
+
+A entrada está em `testes/roteiro9.in` e a saída esperada em
+`testes/roteiro9.out`:
 
 ```bash
-testes/run.sh testes/roteiro8.go testes/roteiro8.in | diff - testes/roteiro8.out
+python3 main.py testes/roteiro9.go < testes/roteiro9.in | diff - testes/roteiro9.out
 ```
 
-`testes/teste.go` (Roteiro 6) e `testes/roteiro6.go` (fatorial) também
-compilam; na saída de `teste.go` os booleanos agora aparecem como `1`/`0`.
+`testes/erros/` tem um programa para cada erro. Os erros de função e escopo são:
 
-`testes/erros/` tem um programa por erro de tipo. Todos devem terminar com erro
-na compilação, sem gerar `.asm`:
+- quantidade errada de argumentos;
+- argumento de tipo errado;
+- função inexistente;
+- variável fora de escopo ou local de outra função;
+- `return` em função sem tipo;
+- função com tipo que termina sem `return`;
+- `return` de tipo errado;
+- programa sem `main`;
+- função dentro de função;
+- função sem retorno usada em expressão;
+- função duplicada;
+- atribuição a uma função;
+- instrução fora de função.
+
+Os erros de tipo das versões anteriores também estão lá. Todos devem terminar
+com erro:
 
 ```bash
 for f in testes/erros/*.go; do python3 main.py "$f" > /dev/null 2>&1 && echo "FALHOU: $f"; done
 ```
 
-`testes/roteiro7.go` é o teste da v2.2. Ele usa strings, então só funciona até
-a v2.2, quando o compilador ainda interpretava o programa.
+Os programas das versões anteriores (`testes/teste.go`, `testes/roteiro6.go` e
+`testes/roteiro7.go`) continuam funcionando. Eles só passaram a ficar dentro de
+um `func main()`. `testes/roteiro8.go` é o teste da geração de código (v3.0),
+que fica nas tags `v3.0.x`.
