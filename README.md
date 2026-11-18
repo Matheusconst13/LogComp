@@ -11,23 +11,24 @@ This repository is monitored by Compiler Tester for automatic compilation status
 ## EBNF
 
 ```ebnf
-PROGRAM        = { ( "var", IDENTIFIER, TYPE, ( ε | "=", BOOLEXPRESSION ) | FUNCDEC | ε ), "\n" } ;
+PROGRAM        = { ( FUNCDEC | VARDEC | ε ), "\n" } ;
 FUNCDEC        = "func", IDENTIFIER, "(", ( ε | IDENTIFIER, TYPE, { ",", IDENTIFIER, TYPE } ), ")", ( ε | TYPE ), BLOCK ;
-BLOCK          = "{", "\n", { STATEMENT }, "}" ;
-STATEMENT      = ( "var", IDENTIFIER, TYPE, ( ε | "=", BOOLEXPRESSION ) | ( "Println", "(", BOOLEXPRESSION, ")" ) | ( "for", BOOLEXPRESSION, BLOCK ) | ( "if", BOOLEXPRESSION, BLOCK, ( ε | "else", BLOCK ) | ) | ( "return", BOOLEXPRESSION ) | BLOCK | IDENTIFIER, ( "=", BOOLEXPRESSION | "(", ( ε | BOOLEXPRESSION, { ",", BOOLEXPRESSION } ), ")" ) | ε ), "\n" ;
+VARDEC         = "var", IDENTIFIER, TYPE, ( ε | "=", BOOLEXPRESSION ) ;
+BLOCK          = "{", "\n", { STATEMENT, }, "}" ;
+STATEMENT      = ( "return", BOOLEXPRESSION | ( "Println", "(", BOOLEXPRESSION, ")" ) | ( "for", BOOLEXPRESSION, STATEMENT ) | ( "if", BOOLEXPRESSION, BLOCK, ( ε | "else", BLOCK ) ) | ( IDENTIFIER, ( "=", BOOLEXPRESSION | "(", ( BOOLEXPRESSION, { ",", BOOLEXPRESSION } | ε ), ")" ) ) | BLOCK | VARDEC | ε ), "\n" ;
 BOOLEXPRESSION = BOOLTERM, { "||", BOOLTERM } ;
 BOOLTERM       = RELEXPRESSION, { "&&", RELEXPRESSION } ;
 RELEXPRESSION  = EXPRESSION, { ("==" | ">" | "<"), EXPRESSION } ;
 EXPRESSION     = TERM, { ("+" | "-"), TERM } ;
 TERM           = FACTOR, { ("*" | "/"), FACTOR } ;
-FACTOR         = NUMBER | BOOLEAN | STRING | IDENTIFIER, ( ε | "(", ( ε | BOOLEXPRESSION, { ",", BOOLEXPRESSION } ), ")" ) | ("!" | "+" | "-"), FACTOR | "(", BOOLEXPRESSION, ")" | "Scanln", "(", ")" ;
+FACTOR         = NUMBER | STRING | BOOLEAN | IDENTIFIER, ( "(", ( BOOLEXPRESSION, { ",", BOOLEXPRESSION } | ε ), ")" | ε ) | ("!" | "+" | "-"), FACTOR | "(", BOOLEXPRESSION, ")" | "Scanln", "(", ")" ;
 TYPE           = "string" | "int" | "bool" ;
 BOOLEAN        = "true" | "false" ;
 STRING         = '"', { "..." }, '"' ;
 IDENTIFIER     = LETTER, { LETTER | DIGIT | "_" } ;
 NUMBER         = DIGIT, { DIGIT } ;
-LETTER         = "a" | "b" | ... | "z" | "A" | "B" | ... | "Z" ;
-DIGIT          = "0" | "1" | ... | "9" ;
+LETTER         = "a" | ... | "z" | "A" | ... | "Z" ;
+DIGIT          = "0" | ... | "9" ;
 ```
 
 ## Tokens

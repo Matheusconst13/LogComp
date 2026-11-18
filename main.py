@@ -541,21 +541,42 @@ class Parser:
             if Parser.lexer.next.type == "END":
                 Parser.lexer.select_next()
 
-            elif Parser.lexer.next.type == "VAR":
-                # parse_statement ja consome o "\n" do final
-                children.append(Parser.parse_statement())
-
-            elif Parser.lexer.next.type == "FUNC":
-                children.append(Parser.parse_func_declaration())
+            elif Parser.lexer.next.type in ("VAR", "FUNC"):
+                if Parser.lexer.next.type == "VAR":
+                    children.append(Parser.parse_var_declaration())
+                else:
+                    children.append(Parser.parse_func_declaration())
 
                 if Parser.lexer.next.type != "END":
-                    raise Exception("[Parser] Expected end of line after function, got " + Parser.lexer.next.type)
+                    raise Exception("[Parser] Expected end of line after declaration, got " + Parser.lexer.next.type)
                 Parser.lexer.select_next()
 
             else:
                 raise Exception("[Parser] Expected function or variable declaration, got " + Parser.lexer.next.type)
 
         return Block("BLOCK", children)
+
+    @staticmethod
+    def parse_var_declaration():
+        # "var" IDENTIFIER TYPE [ "=" BOOLEXPRESSION ] -> VarDec (o "\n" do final e cobrado por quem chamou)
+        Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "IDEN":
+            raise Exception("[Parser] Expected identifier after var, got " + Parser.lexer.next.type)
+        identifier = Identifier(Parser.lexer.next.value)
+        Parser.lexer.select_next()
+
+        if Parser.lexer.next.type != "TYPE":
+            raise Exception("[Parser] Expected type after identifier, got " + Parser.lexer.next.type)
+        var_type = Parser.lexer.next.value
+        Parser.lexer.select_next()
+
+        children = [identifier]
+        if Parser.lexer.next.type == "ASSIGN":
+            Parser.lexer.select_next()
+            children.append(Parser.parse_bool_expression())
+
+        return VarDec(var_type, children)
 
     @staticmethod
     def parse_func_declaration():
@@ -646,24 +667,7 @@ class Parser:
             node = Return("RETURN", [Parser.parse_bool_expression()])
 
         elif token.type == "VAR":
-            Parser.lexer.select_next()
-
-            if Parser.lexer.next.type != "IDEN":
-                raise Exception("[Parser] Expected identifier after var, got " + Parser.lexer.next.type)
-            identifier = Identifier(Parser.lexer.next.value)
-            Parser.lexer.select_next()
-
-            if Parser.lexer.next.type != "TYPE":
-                raise Exception("[Parser] Expected type after identifier, got " + Parser.lexer.next.type)
-            var_type = Parser.lexer.next.value
-            Parser.lexer.select_next()
-
-            children = [identifier]
-            if Parser.lexer.next.type == "ASSIGN":
-                Parser.lexer.select_next()
-                children.append(Parser.parse_bool_expression())
-
-            node = VarDec(var_type, children)
+            node = Parser.parse_var_declaration()
 
         elif token.type == "PRINT":
             Parser.lexer.select_next()
